@@ -38,25 +38,35 @@ static int core_clks_get(struct venus_core *core)
 	return 0;
 }
 
-static int core_clks_enable(struct venus_core *core)
+static int core_find_min_freq(struct venus_core *core, unsigned long *freq)
 {
 	const struct freq_tbl *freq_tbl = core->res->freq_tbl;
 	unsigned int freq_tbl_size = core->res->freq_tbl_size;
-	const struct venus_resources *res = core->res;
-	struct device *dev = core->dev;
-	unsigned long freq = 0;
 	struct dev_pm_opp *opp;
-	unsigned int i;
-	int ret;
 
-	opp = dev_pm_opp_find_freq_ceil(dev, &freq);
+	*freq = 0;
+	opp = dev_pm_opp_find_freq_ceil(core->dev, freq);
 	if (IS_ERR(opp)) {
 		if (!freq_tbl)
 			return -ENODEV;
-		freq = freq_tbl[freq_tbl_size - 1].freq;
+		*freq = freq_tbl[freq_tbl_size - 1].freq;
 	} else {
 		dev_pm_opp_put(opp);
 	}
+
+	return 0;
+}
+
+static int core_clks_enable(struct venus_core *core)
+{
+	const struct venus_resources *res = core->res;
+	unsigned long freq;
+	unsigned int i;
+	int ret;
+
+	ret = core_find_min_freq(core, &freq);
+	if (ret)
+		return ret;
 
 	for (i = 0; i < res->clks_num; i++) {
 		if (IS_V6(core) || (IS_V4(core) && is_lite(core)) ||
@@ -325,24 +335,16 @@ static int core_v1_opt_clks_get(struct venus_core *core)
 	return 0;
 }
 
-static int core_v1_opt_clks_power(struct venus_core *core, int on)
+static int core_v1_clks_toggle(struct clk * const *clks, size_t num, int on)
 {
-	struct clk * const clks[] = {
-		core->noc_axi_clk,
-		core->mnoc_ahb_clk,
-		core->mnoc_maxi_clk,
-		core->smmu_ahb_clk,
-		core->smmu_axi_clk,
-		core->subcore0_clk,
-		core->subcore1_clk,
-	};
-	int i, ret;
+	size_t i;
+	int ret;
 
 	if (on == POWER_ON) {
-		for (i = 0; i < ARRAY_SIZE(clks); i++) {
+		for (i = 0; i < num; i++) {
 			ret = clk_prepare_enable(clks[i]);
 			if (ret) {
-				while (--i >= 0)
+				while (i--)
 					clk_disable_unprepare(clks[i]);
 				return ret;
 			}
@@ -350,10 +352,50 @@ static int core_v1_opt_clks_power(struct venus_core *core, int on)
 		return 0;
 	}
 
-	for (i = ARRAY_SIZE(clks) - 1; i >= 0; i--)
-		clk_disable_unprepare(clks[i]);
+	for (i = num; i > 0; i--)
+		clk_disable_unprepare(clks[i - 1]);
 
 	return 0;
+}
+
+static int core_v1_bus_clks_power(struct venus_core *core, int on)
+{
+	struct clk * const clks[] = {
+		core->noc_axi_clk,
+		core->mnoc_ahb_clk,
+		core->smmu_ahb_clk,
+		core->smmu_axi_clk,
+		core->mnoc_maxi_clk,
+	};
+
+	return core_v1_clks_toggle(clks, ARRAY_SIZE(clks), on);
+}
+
+static int core_v1_subcore_clks_power(struct venus_core *core, int on)
+{
+	struct clk * const clks[] = {
+		core->subcore0_clk,
+		core->subcore1_clk,
+	};
+	unsigned long freq;
+	size_t i;
+	int ret;
+
+	if (on == POWER_ON) {
+		ret = core_find_min_freq(core, &freq);
+		if (ret)
+			return ret;
+
+		for (i = 0; i < ARRAY_SIZE(clks); i++) {
+			if (!clks[i])
+				continue;
+			ret = clk_set_rate(clks[i], freq);
+			if (ret)
+				return ret;
+		}
+	}
+
+	return core_v1_clks_toggle(clks, ARRAY_SIZE(clks), on);
 }
 
 static int core_get_v1(struct venus_core *core)
@@ -396,18 +438,28 @@ static int core_power_v1(struct venus_core *core, int on)
 	int ret = 0;
 
 	if (on == POWER_ON) {
-		ret = core_v1_opt_clks_power(core, POWER_ON);
+		ret = core_v1_bus_clks_power(core, POWER_ON);
 		if (ret)
 			return ret;
 		ret = core_clks_enable(core);
 		if (ret)
-			core_v1_opt_clks_power(core, POWER_OFF);
-	} else {
+			goto err_bus_off;
+		ret = core_v1_subcore_clks_power(core, POWER_ON);
+		if (ret)
+			goto err_core_off;
+		return 0;
+	err_core_off:
 		core_clks_disable(core);
-		core_v1_opt_clks_power(core, POWER_OFF);
+	err_bus_off:
+		core_v1_bus_clks_power(core, POWER_OFF);
+		return ret;
 	}
 
-	return ret;
+	core_v1_subcore_clks_power(core, POWER_OFF);
+	core_clks_disable(core);
+	core_v1_bus_clks_power(core, POWER_OFF);
+
+	return 0;
 }
 
 static const struct venus_pm_ops pm_ops_v1 = {

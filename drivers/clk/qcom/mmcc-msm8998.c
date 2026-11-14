@@ -2581,7 +2581,7 @@ static struct gdsc video_subcore0_gdsc = {
 	},
 	.parent = &video_top_gdsc.pd,
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = HW_CTRL,
+	.flags = HW_CTRL_TRIGGER,
 };
 
 static struct gdsc video_subcore1_gdsc = {
@@ -2593,7 +2593,7 @@ static struct gdsc video_subcore1_gdsc = {
 	},
 	.parent = &video_top_gdsc.pd,
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = HW_CTRL,
+	.flags = HW_CTRL_TRIGGER,
 };
 
 static struct gdsc mdss_gdsc = {
