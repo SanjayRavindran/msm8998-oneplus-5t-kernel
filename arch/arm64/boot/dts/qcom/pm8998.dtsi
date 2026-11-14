@@ -91,7 +91,7 @@
 			};
 
 			adc-chan@1 {
-				reg = <ADC5_REF_GND>;
+				reg = <ADC5_1P25VREF>;
 				label = "vref_1p25";
 			};
 
