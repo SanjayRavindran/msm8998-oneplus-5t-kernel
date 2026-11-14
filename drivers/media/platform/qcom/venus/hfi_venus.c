@@ -4,8 +4,10 @@
  * Copyright (C) 2017 Linaro Ltd.
  */
 
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/io.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/iopoll.h>
@@ -364,15 +366,75 @@ static void venus_free(struct venus_hfi_device *hdev, struct mem_desc *mem)
 	dma_free_attrs(dev, mem->size, mem->kva, mem->da, mem->attrs);
 }
 
-static void venus_set_registers(struct venus_hfi_device *hdev)
+static void venus_dump_mmcc_state(struct venus_core *core)
+{
+	static const struct {
+		const char *name;
+		u32 off;
+	} regs[] = {
+		{ "VIDEO_TOP_GDSCR", 0x1024 },
+		{ "VIDEO_CORE_CBCR", 0x1028 },
+		{ "VIDEO_AHB_CBCR", 0x1030 },
+		{ "VIDEO_AXI_CBCR", 0x1034 },
+		{ "VIDEO_MAXI_CBCR", 0x1038 },
+		{ "VIDEO_SUBCORE0_GDSCR", 0x1040 },
+		{ "VIDEO_SUBCORE1_GDSCR", 0x1044 },
+		{ "VIDEO_SUBCORE0_CBCR", 0x1048 },
+		{ "VIDEO_SUBCORE1_CBCR", 0x104c },
+		{ "BIMC_SMMU_AHB_CBCR", 0xe004 },
+		{ "BIMC_SMMU_AXI_CBCR", 0xe008 },
+		{ "BIMC_SMMU_GDSCR", 0xe020 },
+		{ "MNOC_AHB_CBCR", 0x5024 },
+		{ "MNOC_MAXI_CBCR", 0xf004 },
+	};
+	void __iomem *mmcc = ioremap(0x0c8c0000, 0x10000);
+	unsigned int i;
+
+	if (!mmcc) {
+		dev_err(core->dev, "venus_dump_mmcc_state: ioremap failed\n");
+		return;
+	}
+
+	dev_info(core->dev, "venus clks present: noc_axi=%d mnoc_ahb=%d mnoc_maxi=%d smmu_ahb=%d smmu_axi=%d sub0=%d(%lu) sub1=%d(%lu) core=%lu\n",
+		 !!core->noc_axi_clk, !!core->mnoc_ahb_clk, !!core->mnoc_maxi_clk,
+		 !!core->smmu_ahb_clk, !!core->smmu_axi_clk,
+		 !!core->subcore0_clk, clk_get_rate(core->subcore0_clk),
+		 !!core->subcore1_clk, clk_get_rate(core->subcore1_clk),
+		 clk_get_rate(core->clks[0]));
+
+	for (i = 0; i < ARRAY_SIZE(regs); i++)
+		dev_info(core->dev, "mmcc[%#06x] %-22s = %#010x\n",
+			 regs[i].off, regs[i].name, readl(mmcc + regs[i].off));
+
+	iounmap(mmcc);
+}
+
+static int venus_set_registers(struct venus_hfi_device *hdev)
 {
 	const struct venus_resources *res = hdev->core->res;
 	const struct reg_val *tbl = res->reg_tbl;
+	struct device *dev = hdev->core->dev;
 	unsigned int count = res->reg_tbl_size;
 	unsigned int i;
 
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count; i++) {
+		if (venus_skip_cpu_cgc_reg && hdev->core->use_tz &&
+		    tbl[i].reg == WRAPPER_CPU_CGC_DIS) {
+			dev_info(dev, "venus_set_registers: skipping [%u] %#x\n",
+				 i, tbl[i].reg);
+			continue;
+		}
+		dev_info(dev, "venus_set_registers: write [%u] %#x <= %#x\n",
+			 i, tbl[i].reg, tbl[i].value);
 		writel(tbl[i].value, hdev->core->base + tbl[i].reg);
+		if (venus_stop_step == 930 + (int)i) {
+			dev_info(dev, "venus_stop_step=%d reached after reg[%u] %#x\n",
+				 venus_stop_step, i, tbl[i].reg);
+			return -ECANCELED;
+		}
+	}
+
+	return 0;
 }
 
 static void venus_soft_int(struct venus_hfi_device *hdev)
@@ -553,9 +615,49 @@ static int venus_run(struct venus_hfi_device *hdev)
 	 * Re-program all of the registers that get reset as a result of
 	 * regulator_disable() and _enable()
 	 */
+	if (venus_stop_step == 920) {
+		venus_dump_mmcc_state(hdev->core);
+		dev_info(dev, "venus_stop_step=920 reached before any MMIO access\n");
+		return -ECANCELED;
+	}
+
+	ret = venus_hwversion(hdev);
+	dev_info(dev, "venus_run: WRAPPER_HW_VERSION major=%d\n", ret);
+	if (venus_stop_step == 921) {
+		dev_info(dev, "venus_stop_step=921 reached after WRAPPER_HW_VERSION read\n");
+		return -ECANCELED;
+	}
+
+	if (venus_wrap_clk_init & BIT(0)) {
+		dev_info(dev, "venus_run: writing WRAPPER_CLOCK_CONFIG=0\n");
+		writel(0, hdev->core->wrapper_base + WRAPPER_CLOCK_CONFIG);
+		if (venus_stop_step == 922) {
+			dev_info(dev, "venus_stop_step=922 reached after WRAPPER_CLOCK_CONFIG\n");
+			return -ECANCELED;
+		}
+	}
+
+	if (venus_wrap_clk_init & BIT(1)) {
+		dev_info(dev, "venus_run: writing WRAPPER_CPU_CLOCK_CONFIG=0\n");
+		writel(0, hdev->core->wrapper_base + WRAPPER_CPU_CLOCK_CONFIG);
+		if (venus_stop_step == 923) {
+			dev_info(dev, "venus_stop_step=923 reached after WRAPPER_CPU_CLOCK_CONFIG\n");
+			return -ECANCELED;
+		}
+	}
+
 	dev_info(dev, "venus_run: before venus_set_registers (ifaceq_da=%#llx sfr_da=%#llx)\n",
 		 (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
-	venus_set_registers(hdev);
+	if (venus_stop_step == 929) {
+		dev_info(dev, "venus_stop_step=929 reached before venus_set_registers\n");
+		return -ECANCELED;
+	}
+
+	if (!venus_pre_pas_regs) {
+		ret = venus_set_registers(hdev);
+		if (ret)
+			return ret;
+	}
 
 	dev_info(dev, "venus_run: after venus_set_registers, before UC_REGION_ADDR\n");
 	if (venus_stop_step == 93) {
@@ -677,9 +779,11 @@ static int venus_power_off(struct venus_hfi_device *hdev)
 	if (!hdev->power_enabled)
 		return 0;
 
-	ret = venus_set_hw_state_suspend(hdev->core);
-	if (ret)
-		return ret;
+	if (!venus_skip_set_hw_state) {
+		ret = venus_set_hw_state_suspend(hdev->core);
+		if (ret)
+			return ret;
+	}
 
 	ret = venus_halt_axi(hdev);
 	if (ret)
@@ -704,9 +808,13 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 		return -ECANCELED;
 	}
 
-	ret = venus_set_hw_state_resume(hdev->core);
-	if (ret)
-		goto err;
+	if (!venus_skip_set_hw_state) {
+		ret = venus_set_hw_state_resume(hdev->core);
+		if (ret)
+			goto err;
+	} else {
+		dev_info(hdev->core->dev, "venus_power_on: skipped venus_set_hw_state_resume\n");
+	}
 
 	dev_info(hdev->core->dev, "venus_power_on: after venus_set_hw_state_resume, before venus_run\n");
 	if (venus_stop_step == 92) {
@@ -724,7 +832,8 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 	return 0;
 
 err_suspend:
-	venus_set_hw_state_suspend(hdev->core);
+	if (!venus_skip_set_hw_state)
+		venus_set_hw_state_suspend(hdev->core);
 err:
 	hdev->power_enabled = false;
 	return ret;

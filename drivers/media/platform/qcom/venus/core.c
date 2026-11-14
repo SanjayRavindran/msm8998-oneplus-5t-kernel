@@ -30,7 +30,23 @@
 
 int venus_stop_step;
 module_param(venus_stop_step, int, 0644);
-MODULE_PARM_DESC(venus_stop_step, "Stop venus probe before step N (1..10, 91..96) for bring-up isolation");
+MODULE_PARM_DESC(venus_stop_step, "Stop venus probe before step N (1..10, 91..96, 920..937) for bring-up isolation");
+
+int venus_wrap_clk_init;
+module_param(venus_wrap_clk_init, int, 0644);
+MODULE_PARM_DESC(venus_wrap_clk_init, "Bitmask: 1=clear WRAPPER_CLOCK_CONFIG, 2=clear WRAPPER_CPU_CLOCK_CONFIG before reg preset");
+
+bool venus_skip_set_hw_state;
+module_param(venus_skip_set_hw_state, bool, 0644);
+MODULE_PARM_DESC(venus_skip_set_hw_state, "Skip qcom_scm_set_remote_state during cold boot/suspend");
+
+bool venus_skip_cpu_cgc_reg;
+module_param(venus_skip_cpu_cgc_reg, bool, 0644);
+MODULE_PARM_DESC(venus_skip_cpu_cgc_reg, "Skip writing 0xe2010 WRAPPER_CPU_CGC_DIS in venus_set_registers when use_tz=1");
+
+bool venus_pre_pas_regs;
+module_param(venus_pre_pas_regs, bool, 0644);
+MODULE_PARM_DESC(venus_pre_pas_regs, "Write wrapper clk config and reg_tbl before pas_auth_and_reset like stock");
 
 static void venus_coredump(struct venus_core *core)
 {

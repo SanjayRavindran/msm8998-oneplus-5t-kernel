@@ -32,6 +32,10 @@
 
 extern int venus_fw_debug;
 extern int venus_stop_step;
+extern int venus_wrap_clk_init;
+extern bool venus_skip_set_hw_state;
+extern bool venus_skip_cpu_cgc_reg;
+extern bool venus_pre_pas_regs;
 
 struct freq_tbl {
 	unsigned int load;
@@ -197,6 +201,11 @@ struct venus_core {
 	struct clk *clks[VIDC_CLKS_NUM_MAX];
 	struct clk *noc_axi_clk;
 	struct clk *mnoc_ahb_clk;
+	struct clk *mnoc_maxi_clk;
+	struct clk *smmu_ahb_clk;
+	struct clk *smmu_axi_clk;
+	struct clk *subcore0_clk;
+	struct clk *subcore1_clk;
 	struct clk *vcodec0_clks[VIDC_VCODEC_CLKS_NUM_MAX];
 	struct clk *vcodec1_clks[VIDC_VCODEC_CLKS_NUM_MAX];
 	struct icc_path *video_path;

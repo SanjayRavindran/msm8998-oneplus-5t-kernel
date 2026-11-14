@@ -832,13 +832,27 @@
 &venus {
 	status = "okay";
 
+	power-domains = <&mmcc VIDEO_TOP_GDSC>,
+			<&mmcc BIMC_SMMU_GDSC>,
+			<&mmcc VIDEO_SUBCORE0_GDSC>,
+			<&mmcc VIDEO_SUBCORE1_GDSC>;
+	power-domain-names = "venus", "smmu", "vcodec0", "vcodec1";
+
 	clocks = <&mmcc VIDEO_CORE_CLK>,
 		 <&mmcc VIDEO_AHB_CLK>,
 		 <&mmcc VIDEO_AXI_CLK>,
 		 <&mmcc VIDEO_MAXI_CLK>,
 		 <&gcc GCC_MMSS_SYS_NOC_AXI_CLK>,
-		 <&mmcc MNOC_AHB_CLK>;
-	clock-names = "core", "iface", "bus", "mbus", "noc_axi", "mnoc_ahb";
+		 <&mmcc MNOC_AHB_CLK>,
+		 <&mmcc MNOC_MAXI_CLK>,
+		 <&mmcc BIMC_SMMU_AHB_CLK>,
+		 <&mmcc BIMC_SMMU_AXI_CLK>,
+		 <&mmcc VIDEO_SUBCORE0_CLK>,
+		 <&mmcc VIDEO_SUBCORE1_CLK>;
+	clock-names = "core", "iface", "bus", "mbus",
+		      "noc_axi", "mnoc_ahb",
+		      "mnoc_maxi", "smmu_ahb", "smmu_axi",
+		      "subcore0", "subcore1";
 
 	firmware-name = "qcom/msm8998/oneplus/venus.mbn";
 };

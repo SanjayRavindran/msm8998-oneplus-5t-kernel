@@ -261,6 +261,19 @@ int venus_boot(struct venus_core *core)
 		return -ECANCELED;
 	}
 
+	if (venus_pre_pas_regs) {
+		unsigned int i;
+
+		dev_info(dev, "venus_boot: applying wrapper clk config and reg_tbl before pas_auth_and_reset\n");
+		writel(0, core->wrapper_base + WRAPPER_CLOCK_CONFIG);
+		writel(0, core->wrapper_base + WRAPPER_CPU_CLOCK_CONFIG);
+		for (i = 0; i < res->reg_tbl_size; i++) {
+			if (venus_skip_cpu_cgc_reg && res->reg_tbl[i].reg == WRAPPER_CPU_CGC_DIS)
+				continue;
+			writel(res->reg_tbl[i].value, core->base + res->reg_tbl[i].reg);
+		}
+	}
+
 	if (core->use_tz)
 		ret = qcom_scm_pas_auth_and_reset(VENUS_PAS_ID);
 	else
