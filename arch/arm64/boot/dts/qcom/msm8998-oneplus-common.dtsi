@@ -268,18 +268,6 @@
 			};
 		};
 
-		ufs-thermal {
-			thermal-sensors = <&pm8998_adc_tm 3>;
-
-			trips {
-				tr_ufs_alert0: trip-point {
-					temperature = <125000>;
-					hysteresis = <10000>;
-					type = "passive";
-				};
-			};
-		};
-
 		pa0-thermal {
 			thermal-sensors = <&pm8998_adc_tm 4>;
 
@@ -389,13 +377,6 @@
 	msm-thermistor@2 {
 		reg = <2>;
 		io-channels = <&pm8998_adc ADC5_AMUX_THM1_100K_PU>;
-		qcom,ratiometric;
-		qcom,hw-settle-time-us = <200>;
-	};
-
-	ufs-thermistor@3 {
-		reg = <3>;
-		io-channels = <&pm8998_adc ADC5_AMUX_THM2_100K_PU>;
 		qcom,ratiometric;
 		qcom,hw-settle-time-us = <200>;
 	};
