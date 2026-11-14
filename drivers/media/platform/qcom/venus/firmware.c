@@ -235,6 +235,12 @@ int venus_boot(struct venus_core *core)
 	if (ret)
 		fwpath = core->res->fwname;
 
+	dev_info(dev, "venus_boot: before venus_load_fw (%s)\n", fwpath);
+	if (venus_stop_step == 4) {
+		dev_info(dev, "venus_stop_step=4 reached before venus_load_fw\n");
+		return -ECANCELED;
+	}
+
 	ret = venus_load_fw(core, fwpath, &mem_phys, &mem_size);
 	if (ret) {
 		dev_err(dev, "fail to load video firmware\n");
@@ -243,6 +249,13 @@ int venus_boot(struct venus_core *core)
 
 	core->fw.mem_size = mem_size;
 	core->fw.mem_phys = mem_phys;
+
+	dev_info(dev, "venus_boot: loaded fw phys=%pa size=%zu, before pas_auth_and_reset\n",
+		 &mem_phys, mem_size);
+	if (venus_stop_step == 5) {
+		dev_info(dev, "venus_stop_step=5 reached before pas_auth_and_reset\n");
+		return -ECANCELED;
+	}
 
 	if (core->use_tz)
 		ret = qcom_scm_pas_auth_and_reset(VENUS_PAS_ID);
@@ -253,6 +266,15 @@ int venus_boot(struct venus_core *core)
 		dev_err(dev, "venus boot failed (%s): %d\n",
 			core->use_tz ? "tz" : "no-tz", ret);
 		return ret;
+	}
+
+	dev_info(dev, "venus_boot: pas_auth_and_reset ok, before mem_protect_video_var (cp_size=%#x)\n",
+		 res->cp_size);
+	if (venus_stop_step == 6) {
+		dev_info(dev, "venus_stop_step=6 reached before mem_protect_video_var\n");
+		if (core->use_tz)
+			qcom_scm_pas_shutdown(VENUS_PAS_ID);
+		return -ECANCELED;
 	}
 
 	if (core->use_tz && res->cp_size) {

@@ -31,6 +31,7 @@
 #define VENUS_MAX_FPS			240
 
 extern int venus_fw_debug;
+extern int venus_stop_step;
 
 struct freq_tbl {
 	unsigned int load;
