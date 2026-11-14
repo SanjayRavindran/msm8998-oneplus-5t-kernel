@@ -54,53 +54,20 @@ static void venus_reset_cpu(struct venus_core *core)
 	}
 }
 
-int venus_apply_reg_presets(struct venus_core *core)
+void venus_apply_reg_presets(struct venus_core *core)
 {
 	const struct venus_resources *res = core->res;
-	struct device *dev = core->dev;
 	unsigned int i;
 
-	dev_info(dev, "venus_apply_reg_presets: writing WRAPPER_CLOCK_CONFIG=0\n");
 	writel(0, core->wrapper_base + WRAPPER_CLOCK_CONFIG);
-	if (venus_stop_step == 922) {
-		dev_info(dev, "venus_stop_step=922 reached after WRAPPER_CLOCK_CONFIG\n");
-		return -ECANCELED;
-	}
-
-	dev_info(dev, "venus_apply_reg_presets: writing WRAPPER_CPU_CLOCK_CONFIG=0\n");
 	writel(0, core->wrapper_base + WRAPPER_CPU_CLOCK_CONFIG);
-	if (venus_stop_step == 923) {
-		dev_info(dev, "venus_stop_step=923 reached after WRAPPER_CPU_CLOCK_CONFIG\n");
-		return -ECANCELED;
-	}
 
-	if (venus_stop_step == 929) {
-		dev_info(dev, "venus_stop_step=929 reached before reg_tbl\n");
-		return -ECANCELED;
-	}
-
-	for (i = 0; i < res->reg_tbl_size; i++) {
-		if (venus_skip_cpu_cgc_reg && core->use_tz &&
-		    res->reg_tbl[i].reg == WRAPPER_CPU_CGC_DIS) {
-			dev_info(dev, "venus_apply_reg_presets: skipping [%u] %#x\n",
-				 i, res->reg_tbl[i].reg);
-			continue;
-		}
-		dev_info(dev, "venus_apply_reg_presets: write [%u] %#x <= %#x\n",
-			 i, res->reg_tbl[i].reg, res->reg_tbl[i].value);
+	for (i = 0; i < res->reg_tbl_size; i++)
 		writel(res->reg_tbl[i].value, core->base + res->reg_tbl[i].reg);
-		if (venus_stop_step == 930 + (int)i) {
-			dev_info(dev, "venus_stop_step=%d reached after reg[%u] %#x\n",
-				 venus_stop_step, i, res->reg_tbl[i].reg);
-			return -ECANCELED;
-		}
-	}
 
 	if (core->use_tz && !(IS_IRIS2(core) || IS_IRIS2_1(core)))
 		writel(WRAPPER_INTR_MASK_A2HVCODEC_MASK,
 		       core->wrapper_base + WRAPPER_INTR_MASK);
-
-	return 0;
 }
 
 int venus_set_hw_state(struct venus_core *core, bool resume)
@@ -108,15 +75,9 @@ int venus_set_hw_state(struct venus_core *core, bool resume)
 	int ret;
 
 	if (core->use_tz) {
-		dev_info(core->dev, "venus_set_hw_state: calling qcom_scm_set_remote_state(resume=%d, 0)\n",
-			 resume);
 		ret = qcom_scm_set_remote_state(resume, 0);
-		dev_info(core->dev, "venus_set_hw_state: qcom_scm_set_remote_state returned %d\n",
-			 ret);
-		if (resume && ret == -EINVAL) {
-			dev_warn(core->dev, "venus_set_hw_state: resume returned -EINVAL (ARM9 already active)\n");
+		if (resume && ret == -EINVAL)
 			ret = 0;
-		}
 		return ret;
 	}
 
@@ -290,12 +251,6 @@ int venus_boot(struct venus_core *core)
 	if (ret)
 		fwpath = core->res->fwname;
 
-	dev_info(dev, "venus_boot: before venus_load_fw (%s)\n", fwpath);
-	if (venus_stop_step == 4) {
-		dev_info(dev, "venus_stop_step=4 reached before venus_load_fw\n");
-		return -ECANCELED;
-	}
-
 	ret = venus_load_fw(core, fwpath, &mem_phys, &mem_size);
 	if (ret) {
 		dev_err(dev, "fail to load video firmware\n");
@@ -305,19 +260,7 @@ int venus_boot(struct venus_core *core)
 	core->fw.mem_size = mem_size;
 	core->fw.mem_phys = mem_phys;
 
-	dev_info(dev, "venus_boot: loaded fw phys=%pa size=%zu, before pas_auth_and_reset\n",
-		 &mem_phys, mem_size);
-	if (venus_stop_step == 5) {
-		dev_info(dev, "venus_stop_step=5 reached before pas_auth_and_reset\n");
-		return -ECANCELED;
-	}
-
-	if (venus_pre_pas_regs) {
-		dev_info(dev, "venus_boot: applying wrapper clk config, reg_tbl, and intr mask before pas_auth_and_reset\n");
-		ret = venus_apply_reg_presets(core);
-		if (ret)
-			return ret;
-	}
+	venus_apply_reg_presets(core);
 
 	if (core->use_tz)
 		ret = qcom_scm_pas_auth_and_reset(VENUS_PAS_ID);
@@ -337,15 +280,6 @@ int venus_boot(struct venus_core *core)
 	 */
 	if (core->use_tz && of_device_is_compatible(dev->of_node, "qcom,msm8998-venus"))
 		core->fw_booted = true;
-
-	dev_info(dev, "venus_boot: pas_auth_and_reset ok, before mem_protect_video_var (cp_size=%#x)\n",
-		 res->cp_size);
-	if (venus_stop_step == 6) {
-		dev_info(dev, "venus_stop_step=6 reached before mem_protect_video_var\n");
-		if (core->use_tz)
-			qcom_scm_pas_shutdown(VENUS_PAS_ID);
-		return -ECANCELED;
-	}
 
 	if (core->use_tz && res->cp_size) {
 		/*

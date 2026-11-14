@@ -28,22 +28,6 @@
 #include "pm_helpers.h"
 #include "hfi_venus_io.h"
 
-int venus_stop_step;
-module_param(venus_stop_step, int, 0644);
-MODULE_PARM_DESC(venus_stop_step, "Stop venus probe before step N (1..10, 91..96, 920..937) for bring-up isolation");
-
-bool venus_skip_set_hw_state;
-module_param(venus_skip_set_hw_state, bool, 0644);
-MODULE_PARM_DESC(venus_skip_set_hw_state, "Skip qcom_scm_set_remote_state during cold boot/suspend");
-
-bool venus_skip_cpu_cgc_reg;
-module_param(venus_skip_cpu_cgc_reg, bool, 0644);
-MODULE_PARM_DESC(venus_skip_cpu_cgc_reg, "Skip writing 0xe2010 WRAPPER_CPU_CGC_DIS in venus_set_registers when use_tz=1");
-
-bool venus_pre_pas_regs = true;
-module_param(venus_pre_pas_regs, bool, 0644);
-MODULE_PARM_DESC(venus_pre_pas_regs, "Write wrapper clk config, reg_tbl, and intr mask before releasing ARM9 reset like stock");
-
 static void venus_coredump(struct venus_core *core)
 {
 	struct device *dev;
@@ -475,23 +459,9 @@ static int venus_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(dev);
 
-	dev_info(dev, "venus_probe: step 1 before pm_runtime_get_sync (stop_step=%d)\n", venus_stop_step);
-	if (venus_stop_step == 1) {
-		pm_runtime_disable(dev);
-		v4l2_device_unregister(&core->v4l2_dev);
-		ret = -ECANCELED;
-		goto err_hfi_destroy;
-	}
-
 	ret = pm_runtime_get_sync(dev);
 	if (ret < 0) {
 		dev_err(dev, "pm_runtime_get_sync failed: %d\n", ret);
-		goto err_runtime_disable;
-	}
-
-	dev_info(dev, "venus_probe: step 2 before venus_firmware_init\n");
-	if (venus_stop_step == 2) {
-		ret = -ECANCELED;
 		goto err_runtime_disable;
 	}
 
@@ -501,33 +471,15 @@ static int venus_probe(struct platform_device *pdev)
 		goto err_runtime_disable;
 	}
 
-	dev_info(dev, "venus_probe: step 3 before venus_boot\n");
-	if (venus_stop_step == 3) {
-		ret = -ECANCELED;
-		goto err_firmware_deinit;
-	}
-
 	ret = venus_boot(core);
 	if (ret) {
 		dev_err(dev, "venus_boot failed: %d\n", ret);
 		goto err_firmware_deinit;
 	}
 
-	dev_info(dev, "venus_probe: step 7 before venus_firmware_cfg\n");
-	if (venus_stop_step == 7) {
-		ret = -ECANCELED;
-		goto err_venus_shutdown;
-	}
-
 	ret = venus_firmware_cfg(core);
 	if (ret) {
 		dev_err(dev, "venus_firmware_cfg failed: %d\n", ret);
-		goto err_venus_shutdown;
-	}
-
-	dev_info(dev, "venus_probe: step 8 before hfi_core_resume\n");
-	if (venus_stop_step == 8) {
-		ret = -ECANCELED;
 		goto err_venus_shutdown;
 	}
 
@@ -537,22 +489,10 @@ static int venus_probe(struct platform_device *pdev)
 		goto err_venus_shutdown;
 	}
 
-	dev_info(dev, "venus_probe: step 9 before hfi_core_init\n");
-	if (venus_stop_step == 9) {
-		ret = -ECANCELED;
-		goto err_venus_shutdown;
-	}
-
 	ret = hfi_core_init(core);
 	if (ret) {
 		dev_err(dev, "hfi_core_init failed: %d\n", ret);
 		goto err_venus_shutdown;
-	}
-
-	dev_info(dev, "venus_probe: step 10 before venus_firmware_check\n");
-	if (venus_stop_step == 10) {
-		ret = -ECANCELED;
-		goto err_core_deinit;
 	}
 
 	ret = venus_firmware_check(core);
@@ -595,7 +535,6 @@ static int venus_probe(struct platform_device *pdev)
 	}
 
 	venus_dbgfs_init(core);
-	dev_info(dev, "venus_probe completed successfully\n");
 
 	return 0;
 

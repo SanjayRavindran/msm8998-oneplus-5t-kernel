@@ -4,10 +4,8 @@
  * Copyright (C) 2017 Linaro Ltd.
  */
 
-#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
-#include <linux/io.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/iopoll.h>
@@ -366,49 +364,6 @@ static void venus_free(struct venus_hfi_device *hdev, struct mem_desc *mem)
 	dma_free_attrs(dev, mem->size, mem->kva, mem->da, mem->attrs);
 }
 
-static void venus_dump_mmcc_state(struct venus_core *core)
-{
-	static const struct {
-		const char *name;
-		u32 off;
-	} regs[] = {
-		{ "VIDEO_TOP_GDSCR", 0x1024 },
-		{ "VIDEO_CORE_CBCR", 0x1028 },
-		{ "VIDEO_AHB_CBCR", 0x1030 },
-		{ "VIDEO_AXI_CBCR", 0x1034 },
-		{ "VIDEO_MAXI_CBCR", 0x1038 },
-		{ "VIDEO_SUBCORE0_GDSCR", 0x1040 },
-		{ "VIDEO_SUBCORE1_GDSCR", 0x1044 },
-		{ "VIDEO_SUBCORE0_CBCR", 0x1048 },
-		{ "VIDEO_SUBCORE1_CBCR", 0x104c },
-		{ "BIMC_SMMU_AHB_CBCR", 0xe004 },
-		{ "BIMC_SMMU_AXI_CBCR", 0xe008 },
-		{ "BIMC_SMMU_GDSCR", 0xe020 },
-		{ "MNOC_AHB_CBCR", 0x5024 },
-		{ "MNOC_MAXI_CBCR", 0xf004 },
-	};
-	void __iomem *mmcc = ioremap(0x0c8c0000, 0x10000);
-	unsigned int i;
-
-	if (!mmcc) {
-		dev_err(core->dev, "venus_dump_mmcc_state: ioremap failed\n");
-		return;
-	}
-
-	dev_info(core->dev, "venus clks present: noc_axi=%d mnoc_ahb=%d mnoc_maxi=%d smmu_ahb=%d smmu_axi=%d sub0=%d(%lu) sub1=%d(%lu) core=%lu\n",
-		 !!core->noc_axi_clk, !!core->mnoc_ahb_clk, !!core->mnoc_maxi_clk,
-		 !!core->smmu_ahb_clk, !!core->smmu_axi_clk,
-		 !!core->subcore0_clk, clk_get_rate(core->subcore0_clk),
-		 !!core->subcore1_clk, clk_get_rate(core->subcore1_clk),
-		 clk_get_rate(core->clks[0]));
-
-	for (i = 0; i < ARRAY_SIZE(regs); i++)
-		dev_info(core->dev, "mmcc[%#06x] %-22s = %#010x\n",
-			 regs[i].off, regs[i].name, readl(mmcc + regs[i].off));
-
-	iounmap(mmcc);
-}
-
 static void venus_soft_int(struct venus_hfi_device *hdev)
 {
 	void __iomem *cpu_ic_base = hdev->core->cpu_ic_base;
@@ -519,12 +474,6 @@ static int venus_boot_core(struct venus_hfi_device *hdev)
 	if (IS_V1(hdev->core))
 		writel(1, cpu_cs_base + CPU_CS_SCIACMDARG3);
 
-	dev_info(dev, "venus_boot_core: before VIDC_CTRL_INIT (mask=%#x)\n", mask_val);
-	if (venus_stop_step == 95) {
-		dev_info(dev, "venus_stop_step=95 reached before VIDC_CTRL_INIT\n");
-		return -ECANCELED;
-	}
-
 	writel(BIT(VIDC_CTRL_INIT_CTRL_SHIFT), cpu_cs_base + VIDC_CTRL_INIT);
 	while (!ctrl_status && count < max_tries) {
 		ctrl_status = readl(cpu_cs_base + CPU_CS_SCIACMDARG0);
@@ -540,13 +489,6 @@ static int venus_boot_core(struct venus_hfi_device *hdev)
 
 	if (count >= max_tries)
 		ret = -ETIMEDOUT;
-
-	dev_info(dev, "venus_boot_core: after VIDC_CTRL_INIT count=%u ctrl_status=%#x ret=%d\n",
-		 count, ctrl_status, ret);
-	if (venus_stop_step == 96) {
-		dev_info(dev, "venus_stop_step=96 reached after VIDC_CTRL_INIT\n");
-		return -ECANCELED;
-	}
 
 	if (IS_IRIS2(hdev->core) || IS_IRIS2_1(hdev->core) || IS_AR50_LITE(hdev->core)) {
 		writel(0x1, cpu_cs_base + CPU_CS_H2XSOFTINTEN_V6);
@@ -584,47 +526,15 @@ static int venus_run(struct venus_hfi_device *hdev)
 	int ret;
 
 	/*
-	 * Re-program all of the registers that get reset as a result of
-	 * regulator_disable() and _enable()
+	 * Wrapper clock and register presets are already applied before releasing
+	 * ARM9 reset in venus_boot() (cold boot) or venus_power_on() (resume).
 	 */
-	if (venus_stop_step == 920) {
-		venus_dump_mmcc_state(hdev->core);
-		dev_info(dev, "venus_stop_step=920 reached before any MMIO access\n");
-		return -ECANCELED;
-	}
-
-	ret = venus_hwversion(hdev);
-	dev_info(dev, "venus_run: WRAPPER_HW_VERSION major=%d\n", ret);
-	if (venus_stop_step == 921) {
-		dev_info(dev, "venus_stop_step=921 reached after WRAPPER_HW_VERSION read\n");
-		return -ECANCELED;
-	}
-
-	if (!venus_pre_pas_regs) {
-		ret = venus_apply_reg_presets(hdev->core);
-		if (ret)
-			return ret;
-	}
-
-	dev_info(dev, "venus_run: before UC_REGION_ADDR (ifaceq_da=%#llx sfr_da=%#llx)\n",
-		 (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
-	if (venus_stop_step == 93) {
-		dev_info(dev, "venus_stop_step=93 reached before UC_REGION_ADDR\n");
-		return -ECANCELED;
-	}
-
 	writel(hdev->ifaceq_table.da, cpu_cs_base + UC_REGION_ADDR);
 	writel(SHARED_QSIZE, cpu_cs_base + UC_REGION_SIZE);
 	writel(hdev->ifaceq_table.da, cpu_cs_base + CPU_CS_SCIACMDARG2);
 	writel(0x01, cpu_cs_base + CPU_CS_SCIACMDARG1);
 	if (hdev->sfr.da)
 		writel(hdev->sfr.da, cpu_cs_base + SFR_ADDR);
-
-	dev_info(dev, "venus_run: before venus_boot_core\n");
-	if (venus_stop_step == 94) {
-		dev_info(dev, "venus_stop_step=94 reached before venus_boot_core\n");
-		return -ECANCELED;
-	}
 
 	ret = venus_boot_core(hdev);
 	if (ret) {
@@ -727,11 +637,9 @@ static int venus_power_off(struct venus_hfi_device *hdev)
 	if (!hdev->power_enabled)
 		return 0;
 
-	if (!venus_skip_set_hw_state) {
-		ret = venus_set_hw_state_suspend(hdev->core);
-		if (ret)
-			return ret;
-	}
+	ret = venus_set_hw_state_suspend(hdev->core);
+	if (ret)
+		return ret;
 
 	ret = venus_halt_axi(hdev);
 	if (ret)
@@ -753,35 +661,11 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 
 	core->fw_booted = false;
 
-	dev_info(core->dev, "venus_power_on: cold_boot=%d before resume (ifaceq_da=%#llx sfr_da=%#llx)\n",
-		 cold_boot, (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
-	if (venus_stop_step == 91) {
-		dev_info(core->dev, "venus_stop_step=91 reached before venus_set_hw_state_resume\n");
-		return -ECANCELED;
-	}
-
-	if (venus_pre_pas_regs && !cold_boot) {
-		dev_info(core->dev, "venus_power_on: applying reg presets before warm resume\n");
-		ret = venus_apply_reg_presets(core);
-		if (ret)
-			goto err;
-	}
-
-	if (cold_boot) {
-		dev_info(core->dev, "venus_power_on: ARM9 already active from pas_auth_and_reset\n");
-	} else if (!venus_skip_set_hw_state) {
+	if (!cold_boot) {
+		venus_apply_reg_presets(core);
 		ret = venus_set_hw_state_resume(core);
 		if (ret)
 			goto err;
-	} else {
-		dev_info(core->dev, "venus_power_on: skipped venus_set_hw_state_resume\n");
-	}
-
-	dev_info(hdev->core->dev, "venus_power_on: after venus_set_hw_state_resume, before venus_run\n");
-	if (venus_stop_step == 92) {
-		dev_info(hdev->core->dev, "venus_stop_step=92 reached before venus_run\n");
-		ret = -ECANCELED;
-		goto err_suspend;
 	}
 
 	ret = venus_run(hdev);
@@ -793,8 +677,7 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 	return 0;
 
 err_suspend:
-	if (!venus_skip_set_hw_state)
-		venus_set_hw_state_suspend(hdev->core);
+	venus_set_hw_state_suspend(core);
 err:
 	hdev->power_enabled = false;
 	return ret;
