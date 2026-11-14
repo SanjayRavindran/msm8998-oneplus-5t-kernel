@@ -59,7 +59,11 @@ int venus_set_hw_state(struct venus_core *core, bool resume)
 	int ret;
 
 	if (core->use_tz) {
+		dev_info(core->dev, "venus_set_hw_state: calling qcom_scm_set_remote_state(resume=%d, 0)\n",
+			 resume);
 		ret = qcom_scm_set_remote_state(resume, 0);
+		dev_info(core->dev, "venus_set_hw_state: qcom_scm_set_remote_state returned %d\n",
+			 ret);
 		if (resume && ret == -EINVAL)
 			ret = 0;
 		return ret;

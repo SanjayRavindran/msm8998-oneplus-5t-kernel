@@ -485,6 +485,12 @@ static int venus_boot_core(struct venus_hfi_device *hdev)
 	if (IS_V1(hdev->core))
 		writel(1, cpu_cs_base + CPU_CS_SCIACMDARG3);
 
+	dev_info(dev, "venus_boot_core: before VIDC_CTRL_INIT (mask=%#x)\n", mask_val);
+	if (venus_stop_step == 95) {
+		dev_info(dev, "venus_stop_step=95 reached before VIDC_CTRL_INIT\n");
+		return -ECANCELED;
+	}
+
 	writel(BIT(VIDC_CTRL_INIT_CTRL_SHIFT), cpu_cs_base + VIDC_CTRL_INIT);
 	while (!ctrl_status && count < max_tries) {
 		ctrl_status = readl(cpu_cs_base + CPU_CS_SCIACMDARG0);
@@ -500,6 +506,13 @@ static int venus_boot_core(struct venus_hfi_device *hdev)
 
 	if (count >= max_tries)
 		ret = -ETIMEDOUT;
+
+	dev_info(dev, "venus_boot_core: after VIDC_CTRL_INIT count=%u ctrl_status=%#x ret=%d\n",
+		 count, ctrl_status, ret);
+	if (venus_stop_step == 96) {
+		dev_info(dev, "venus_stop_step=96 reached after VIDC_CTRL_INIT\n");
+		return -ECANCELED;
+	}
 
 	if (IS_IRIS2(hdev->core) || IS_IRIS2_1(hdev->core) || IS_AR50_LITE(hdev->core)) {
 		writel(0x1, cpu_cs_base + CPU_CS_H2XSOFTINTEN_V6);
@@ -540,7 +553,15 @@ static int venus_run(struct venus_hfi_device *hdev)
 	 * Re-program all of the registers that get reset as a result of
 	 * regulator_disable() and _enable()
 	 */
+	dev_info(dev, "venus_run: before venus_set_registers (ifaceq_da=%#llx sfr_da=%#llx)\n",
+		 (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
 	venus_set_registers(hdev);
+
+	dev_info(dev, "venus_run: after venus_set_registers, before UC_REGION_ADDR\n");
+	if (venus_stop_step == 93) {
+		dev_info(dev, "venus_stop_step=93 reached before UC_REGION_ADDR\n");
+		return -ECANCELED;
+	}
 
 	writel(hdev->ifaceq_table.da, cpu_cs_base + UC_REGION_ADDR);
 	writel(SHARED_QSIZE, cpu_cs_base + UC_REGION_SIZE);
@@ -548,6 +569,12 @@ static int venus_run(struct venus_hfi_device *hdev)
 	writel(0x01, cpu_cs_base + CPU_CS_SCIACMDARG1);
 	if (hdev->sfr.da)
 		writel(hdev->sfr.da, cpu_cs_base + SFR_ADDR);
+
+	dev_info(dev, "venus_run: before venus_boot_core\n");
+	if (venus_stop_step == 94) {
+		dev_info(dev, "venus_stop_step=94 reached before venus_boot_core\n");
+		return -ECANCELED;
+	}
 
 	ret = venus_boot_core(hdev);
 	if (ret) {
@@ -670,9 +697,23 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 	if (hdev->power_enabled)
 		return 0;
 
+	dev_info(hdev->core->dev, "venus_power_on: before venus_set_hw_state_resume (ifaceq_da=%#llx sfr_da=%#llx)\n",
+		 (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
+	if (venus_stop_step == 91) {
+		dev_info(hdev->core->dev, "venus_stop_step=91 reached before venus_set_hw_state_resume\n");
+		return -ECANCELED;
+	}
+
 	ret = venus_set_hw_state_resume(hdev->core);
 	if (ret)
 		goto err;
+
+	dev_info(hdev->core->dev, "venus_power_on: after venus_set_hw_state_resume, before venus_run\n");
+	if (venus_stop_step == 92) {
+		dev_info(hdev->core->dev, "venus_stop_step=92 reached before venus_run\n");
+		ret = -ECANCELED;
+		goto err_suspend;
+	}
 
 	ret = venus_run(hdev);
 	if (ret)

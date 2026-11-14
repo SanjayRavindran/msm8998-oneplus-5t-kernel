@@ -30,7 +30,7 @@
 
 int venus_stop_step;
 module_param(venus_stop_step, int, 0644);
-MODULE_PARM_DESC(venus_stop_step, "Stop venus probe before step N (1..10) for bring-up isolation");
+MODULE_PARM_DESC(venus_stop_step, "Stop venus probe before step N (1..10, 91..96) for bring-up isolation");
 
 static void venus_coredump(struct venus_core *core)
 {
