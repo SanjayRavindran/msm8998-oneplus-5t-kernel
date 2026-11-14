@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2025, Giovanni Ricca <giovanniricca@proton.me>
+ */
+
+#include "msm8998-nubia-common.dtsi"
+
+/ {
+	model = "Nubia Z17s";
+	compatible = "nubia,nx595j", "qcom,msm8998";
+	chassis-type = "handset";
+};
+
+&framebuffer0 {
+	height = <2040>;
+};
+
+&vreg_s5a_2p04 {
+	regulator-min-microvolt = <1800000>;
+};
+
+&vreg_l21a_2p95 {
+	regulator-min-microvolt = <2960000>;
+};
+
+/* Panel START */
+&panel {
+	compatible = "jdi,fhd-nt35596s";
+};
+/* Panel END */
