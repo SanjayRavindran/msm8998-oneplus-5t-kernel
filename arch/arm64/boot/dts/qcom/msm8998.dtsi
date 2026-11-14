@@ -484,6 +484,11 @@
 			interrupt-controller;
 			#interrupt-cells = <2>;
 		};
+
+		slpi_smp2p_sleepstate: sleepstate {
+			qcom,entry-name = "sleepstate";
+			#qcom,smem-state-cells = <1>;
+		};
 	};
 
 	thermal-zones {

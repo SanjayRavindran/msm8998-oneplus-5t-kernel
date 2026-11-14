@@ -37,6 +37,12 @@
 	/* Required for bootloader to select correct board */
 	qcom,msm-id = <292 0x20001>; /* 8998 v2.1 */
 
+	smp2p-sleepstate-slpi {
+		compatible = "qcom,smp2p-sleepstate";
+		qcom,smem-states = <&slpi_smp2p_sleepstate 12>;
+		qcom,smem-state-names = "sleepstate";
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
