@@ -305,6 +305,14 @@ static int core_get_v1(struct venus_core *core)
 	if (ret)
 		return ret;
 
+	core->noc_axi_clk = devm_clk_get_optional(core->dev, "noc_axi");
+	if (IS_ERR(core->noc_axi_clk))
+		return PTR_ERR(core->noc_axi_clk);
+
+	core->mnoc_ahb_clk = devm_clk_get_optional(core->dev, "mnoc_ahb");
+	if (IS_ERR(core->mnoc_ahb_clk))
+		return PTR_ERR(core->mnoc_ahb_clk);
+
 	ret = devm_pm_opp_set_clkname(core->dev, "core");
 	if (ret)
 		return ret;
@@ -320,10 +328,25 @@ static int core_power_v1(struct venus_core *core, int on)
 {
 	int ret = 0;
 
-	if (on == POWER_ON)
+	if (on == POWER_ON) {
+		ret = clk_prepare_enable(core->noc_axi_clk);
+		if (ret)
+			return ret;
+		ret = clk_prepare_enable(core->mnoc_ahb_clk);
+		if (ret) {
+			clk_disable_unprepare(core->noc_axi_clk);
+			return ret;
+		}
 		ret = core_clks_enable(core);
-	else
+		if (ret) {
+			clk_disable_unprepare(core->mnoc_ahb_clk);
+			clk_disable_unprepare(core->noc_axi_clk);
+		}
+	} else {
 		core_clks_disable(core);
+		clk_disable_unprepare(core->mnoc_ahb_clk);
+		clk_disable_unprepare(core->noc_axi_clk);
+	}
 
 	return ret;
 }

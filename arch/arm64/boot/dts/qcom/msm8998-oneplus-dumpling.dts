@@ -24,3 +24,7 @@
 &rmi4_f12 {
 	touchscreen-y-mm = <137>;
 };
+
+&panel {
+	compatible = "samsung,s6e3fc1";
+};

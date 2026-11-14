@@ -522,7 +522,7 @@ static void dpu_kms_wait_for_commit_done(struct msm_kms *kms,
 		trace_dpu_kms_wait_for_commit_done(DRMID(crtc));
 		ret = dpu_encoder_wait_for_commit_done(encoder);
 		if (ret && ret != -EWOULDBLOCK) {
-			DPU_ERROR("wait for commit done returned %d\n", ret);
+			DPU_ERROR_RATELIMITED("wait for commit done returned %d\n", ret);
 			break;
 		}
 	}

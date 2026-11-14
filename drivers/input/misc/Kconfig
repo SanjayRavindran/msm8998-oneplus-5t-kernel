@@ -190,6 +190,14 @@ config INPUT_PCSPKR
 	  To compile this driver as a module, choose M here: the
 	  module will be called pcspkr.
 
+config INPUT_QCOM_PMI8998_HAPTICS
+	tristate "Qualcomm PMI8998 Haptics support"
+	depends on ARCH_QCOM || COMPILE_TEST
+	select INPUT_FF_MEMLESS
+	help
+	  Say Y or M here to enable support for the haptics peripheral on
+	  Qualcomm PMI8998 PMICs.
+
 config INPUT_PM8941_PWRKEY
 	tristate "Qualcomm PM8941 power key support"
 	depends on MFD_SPMI_PMIC

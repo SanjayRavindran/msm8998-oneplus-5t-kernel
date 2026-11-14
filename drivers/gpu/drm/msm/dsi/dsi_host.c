@@ -83,7 +83,7 @@ static int dsi_get_version(const void __iomem *base, u32 *major, u32 *minor)
 	}
 }
 
-#define DSI_ERR_STATE_ACK			0x0000
+#define DSI_ERR_STATE_ACK			0x0040
 #define DSI_ERR_STATE_TIMEOUT			0x0001
 #define DSI_ERR_STATE_DLN0_PHY			0x0002
 #define DSI_ERR_STATE_FIFO			0x0004
@@ -382,9 +382,6 @@ int dsi_link_clk_set_rate_6g(struct msm_dsi_host *msm_host)
 {
 	int ret;
 
-	DBG("Set clk rates: pclk=%lu, byteclk=%lu",
-	    msm_host->pixel_clk_rate, msm_host->byte_clk_rate);
-
 	ret = dev_pm_opp_set_rate(&msm_host->pdev->dev,
 				  msm_host->byte_clk_rate);
 	if (ret) {
@@ -406,6 +403,11 @@ int dsi_link_clk_set_rate_6g(struct msm_dsi_host *msm_host)
 			return ret;
 		}
 	}
+
+	DBG("Set clk rates: pclk=%lu byteclk=%lu byte_intf=%lu actual_byte=%lu actual_pclk=%lu",
+	    msm_host->pixel_clk_rate, msm_host->byte_clk_rate,
+	    msm_host->byte_intf_clk_rate,
+	    clk_get_rate(msm_host->byte_clk), clk_get_rate(msm_host->pixel_clk));
 
 	return 0;
 }
@@ -864,8 +866,6 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
 	/* allow only ack-err-status to generate interrupt */
 	dsi_write(msm_host, REG_DSI_ERR_INT_MASK0, 0x13ff3fe0);
 
-	dsi_intr_ctrl(msm_host, DSI_IRQ_MASK_ERROR, 1);
-
 	dsi_write(msm_host, REG_DSI_CLK_CTRL, DSI_CLK_CTRL_ENABLE_CLKS);
 
 	data = DSI_CTRL_CLK_EN;
@@ -889,6 +889,21 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
 	data |= DSI_CTRL_ENABLE;
 
 	dsi_write(msm_host, REG_DSI_CTRL, data);
+
+	/* Clear stale bootloader/reset error flags before enabling error IRQ */
+	dsi_write(msm_host, REG_DSI_ACK_ERR_STATUS,
+		  dsi_read(msm_host, REG_DSI_ACK_ERR_STATUS));
+	dsi_write(msm_host, REG_DSI_ACK_ERR_STATUS, 0);
+	dsi_write(msm_host, REG_DSI_TIMEOUT_STATUS,
+		  dsi_read(msm_host, REG_DSI_TIMEOUT_STATUS));
+	dsi_write(msm_host, REG_DSI_DLN0_PHY_ERR,
+		  dsi_read(msm_host, REG_DSI_DLN0_PHY_ERR));
+	dsi_write(msm_host, REG_DSI_FIFO_STATUS,
+		  DSI_FIFO_STATUS_VIDEO_MDP_FIFO_OVERFLOW |
+		  DSI_FIFO_STATUS_VIDEO_MDP_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_CMD_MDP_FIFO_UNDERFLOW |
+		  DSI_FIFO_STATUS_CMD_DMA_FIFO_UNDERFLOW);
+	dsi_intr_ctrl(msm_host, DSI_IRQ_MASK_ERROR, 1);
 
 	if (msm_host->cphy_mode)
 		dsi_write(msm_host, REG_DSI_CPHY_MODE_CTRL, BIT(0));
@@ -1552,6 +1567,7 @@ static void dsi_ack_err_status(struct msm_dsi_host *msm_host)
 	status = dsi_read(msm_host, REG_DSI_ACK_ERR_STATUS);
 
 	if (status) {
+		pr_err_ratelimited("%s: ack err status=0x%x\n", __func__, status);
 		dsi_write(msm_host, REG_DSI_ACK_ERR_STATUS, status);
 		/* Writing of an extra 0 needed to clear error bits */
 		dsi_write(msm_host, REG_DSI_ACK_ERR_STATUS, 0);
@@ -1587,11 +1603,26 @@ static void dsi_dln0_phy_err(struct msm_dsi_host *msm_host)
 	}
 }
 
+#define DSI_FIFO_STATUS_ERR_MASK ( \
+	DSI_FIFO_STATUS_VIDEO_MDP_FIFO_OVERFLOW | \
+	DSI_FIFO_STATUS_VIDEO_MDP_FIFO_UNDERFLOW | \
+	DSI_FIFO_STATUS_CMD_MDP_FIFO_UNDERFLOW | \
+	DSI_FIFO_STATUS_CMD_DMA_FIFO_UNDERFLOW | \
+	DSI_FIFO_STATUS_DLN0_LP_FIFO_OVERFLOW | \
+	DSI_FIFO_STATUS_DLN0_HS_FIFO_OVERFLOW | \
+	DSI_FIFO_STATUS_DLN0_HS_FIFO_UNDERFLOW | \
+	DSI_FIFO_STATUS_DLN1_HS_FIFO_OVERFLOW | \
+	DSI_FIFO_STATUS_DLN1_HS_FIFO_UNDERFLOW | \
+	DSI_FIFO_STATUS_DLN2_HS_FIFO_OVERFLOW | \
+	DSI_FIFO_STATUS_DLN2_HS_FIFO_UNDERFLOW | \
+	DSI_FIFO_STATUS_DLN3_HS_FIFO_OVERFLOW | \
+	DSI_FIFO_STATUS_DLN3_HS_FIFO_UNDERFLOW)
+
 static void dsi_fifo_status(struct msm_dsi_host *msm_host)
 {
 	u32 status;
 
-	status = dsi_read(msm_host, REG_DSI_FIFO_STATUS);
+	status = dsi_read(msm_host, REG_DSI_FIFO_STATUS) & DSI_FIFO_STATUS_ERR_MASK;
 
 	/* fifo underflow, overflow */
 	if (status) {

@@ -65,6 +65,7 @@ struct pll_10nm_cached_state {
 	u8 pix_clk_div;
 	u8 pll_out_div;
 	u8 pll_mux;
+	bool state_saved;
 };
 
 struct dsi_pll_10nm {
@@ -205,9 +206,55 @@ static void dsi_pll_ssc_commit(struct dsi_pll_10nm *pll, struct dsi_pll_config *
 	}
 }
 
+static void dsi_pll_config_8998_regs(void __iomem *base)
+{
+	/* Match stock msm8998 vco_8998_set_rate PLL initialization */
+	writel(0x10, base + REG_DSI_10nm_PHY_PLL_CORE_INPUT_OVERRIDE);
+	writel(0x3f, base + 0x008);
+	writel(0x00, base + 0x00c);
+	writel(0x00, base + 0x014);
+	writel(0x80, base + 0x018);
+	writel(0x00, base + 0x028);
+	writel(0x00, base + 0x034);
+	writel(0x02, base + 0x038);
+	writel(0x82, base + 0x03c);
+	writel(0x00, base + 0x040);
+	writel(0xff, base + 0x044);
+	writel(0x00, base + 0x048);
+	writel(0x00, base + 0x04c);
+	writel(0x25, base + 0x050);
+	writel(0x4f, base + 0x058);
+	writel(0x0a, base + 0x05c);
+	writel(0x00, base + 0x060);
+	writel(0x42, base + 0x084);
+	writel(0x00, base + 0x088);
+	writel(0x00, base + 0x08c);
+	writel(0x30, base + 0x090);
+	writel(0x04, base + 0x098);
+	writel(0x00, base + 0x09c);
+	writel(0x00, base + 0x0a0);
+	writel(0x01, base + 0x0ac);
+	writel(0x08, base + 0x0b0);
+	writel(0x00, base + 0x0c8);
+	writel(0x03, base + 0x0ec);
+	writel(0x00, base + 0x108);
+	writel(0x00, base + REG_DSI_10nm_PHY_PLL_SSC_CONTROL);
+	writel(0x03, base + 0x16c);
+	writel(0x00, base + 0x17c);
+	writel(0x19, base + 0x188);
+	writel(0x00, base + 0x190);
+	writel(0x40, base + 0x194);
+	writel(0x20, base + 0x198);
+	writel(0x00, base + 0x19c);
+}
+
 static void dsi_pll_config_hzindep_reg(struct dsi_pll_10nm *pll)
 {
 	void __iomem *base = pll->phy->pll_base;
+	u32 int_gain_ifilt = 0xfa;
+
+	if (pll->phy->cfg->quirks & DSI_PHY_10NM_QUIRK_OLD_TIMINGS)
+		int_gain_ifilt = 0x82;
 
 	writel(0x80, base + REG_DSI_10nm_PHY_PLL_ANALOG_CONTROLS_ONE);
 	writel(0x03, base + REG_DSI_10nm_PHY_PLL_ANALOG_CONTROLS_TWO);
@@ -222,7 +269,7 @@ static void dsi_pll_config_hzindep_reg(struct dsi_pll_10nm *pll)
 	writel(0x08, base + REG_DSI_10nm_PHY_PLL_PLL_DIGITAL_TIMERS_TWO);
 	writel(0x08, base + REG_DSI_10nm_PHY_PLL_PLL_PROP_GAIN_RATE_1);
 	writel(0xc0, base + REG_DSI_10nm_PHY_PLL_PLL_BAND_SET_RATE_1);
-	writel(0xfa, base + REG_DSI_10nm_PHY_PLL_PLL_INT_GAIN_IFILT_BAND_1);
+	writel(int_gain_ifilt, base + REG_DSI_10nm_PHY_PLL_PLL_INT_GAIN_IFILT_BAND_1);
 	writel(0x4c, base + REG_DSI_10nm_PHY_PLL_PLL_FL_INT_GAIN_PFILT_BAND_1);
 	writel(0x80, base + REG_DSI_10nm_PHY_PLL_PLL_LOCK_OVERRIDE);
 	writel(0x29, base + REG_DSI_10nm_PHY_PLL_PFILT);
@@ -264,6 +311,9 @@ static int dsi_pll_10nm_vco_set_rate(struct clk_hw *hw, unsigned long rate,
 	dsi_pll_calc_dec_frac(pll_10nm, &config);
 
 	dsi_pll_calc_ssc(pll_10nm, &config);
+
+	if (pll_10nm->phy->cfg->quirks & DSI_PHY_10NM_QUIRK_OLD_TIMINGS)
+		dsi_pll_config_8998_regs(pll_10nm->phy->pll_base);
 
 	dsi_pll_commit(pll_10nm, &config);
 
@@ -338,6 +388,14 @@ static int dsi_pll_10nm_vco_prepare(struct clk_hw *hw)
 	struct device *dev = &pll_10nm->phy->pdev->dev;
 	int rc;
 
+	/*
+	 * Orphan clock reparenting in of_clk_add_hw_provider() triggers
+	 * CLK_OPS_PARENT_ENABLE before PHY power-on; skip locking until the
+	 * PHY digital block is out of powerdown.
+	 */
+	if (!(readl(pll_10nm->phy->base + REG_DSI_10nm_PHY_CMN_CTRL_0) & BIT(6)))
+		return 0;
+
 	dsi_pll_enable_pll_bias(pll_10nm);
 	if (pll_10nm->slave)
 		dsi_pll_enable_pll_bias(pll_10nm->slave);
@@ -365,6 +423,11 @@ static int dsi_pll_10nm_vco_prepare(struct clk_hw *hw)
 	}
 
 	pll_10nm->phy->pll_on = true;
+	DBG("PLL(%d) locked: vco=%llu outdiv=%u cfg0=0x%x cfg1=0x%x",
+	    pll_10nm->phy->id, pll_10nm->vco_current_rate,
+	    readl(pll_10nm->phy->pll_base + REG_DSI_10nm_PHY_PLL_PLL_OUTDIV_RATE) & 0x3,
+	    readl(pll_10nm->phy->base + REG_DSI_10nm_PHY_CMN_CLK_CFG0),
+	    readl(pll_10nm->phy->base + REG_DSI_10nm_PHY_CMN_CLK_CFG1));
 
 	dsi_pll_enable_global_clk(pll_10nm);
 	if (pll_10nm->slave)
@@ -387,6 +450,10 @@ static void dsi_pll_disable_sub(struct dsi_pll_10nm *pll)
 static void dsi_pll_10nm_vco_unprepare(struct clk_hw *hw)
 {
 	struct dsi_pll_10nm *pll_10nm = to_pll_10nm(hw);
+
+	if (!(readl(pll_10nm->phy->base + REG_DSI_10nm_PHY_CMN_CTRL_0) & BIT(6)) &&
+	    !pll_10nm->phy->pll_on)
+		return;
 
 	/*
 	 * To avoid any stray glitches while abruptly powering down the PLL
@@ -483,6 +550,7 @@ static void dsi_10nm_pll_save_state(struct msm_dsi_phy *phy)
 
 	cmn_clk_cfg1 = readl(phy_base + REG_DSI_10nm_PHY_CMN_CLK_CFG1);
 	cached->pll_mux = cmn_clk_cfg1 & 0x3;
+	cached->state_saved = true;
 
 	DBG("DSI PLL%d outdiv %x bit_clk_div %x pix_clk_div %x pll_mux %x",
 	    pll_10nm->phy->id, cached->pll_out_div, cached->bit_clk_div,
@@ -496,6 +564,9 @@ static int dsi_10nm_pll_restore_state(struct msm_dsi_phy *phy)
 	void __iomem *phy_base = pll_10nm->phy->base;
 	u32 val;
 	int ret;
+
+	if (!cached->state_saved)
+		return 0;
 
 	val = readl(pll_10nm->phy->pll_base + REG_DSI_10nm_PHY_PLL_PLL_OUTDIV_RATE);
 	val &= ~0x3;
@@ -690,6 +761,9 @@ static int dsi_pll_10nm_init(struct msm_dsi_phy *phy)
 
 	pll_10nm->phy = phy;
 
+	if (phy->cfg->quirks & DSI_PHY_10NM_QUIRK_OLD_TIMINGS)
+		writel(0x00, phy->pll_base + REG_DSI_10nm_PHY_PLL_PLL_OUTDIV_RATE);
+
 	ret = pll_10nm_register(pll_10nm, phy->provided_clocks->hws);
 	if (ret) {
 		DRM_DEV_ERROR(&pdev->dev, "failed to register PLL: %d\n", ret);
@@ -698,14 +772,17 @@ static int dsi_pll_10nm_init(struct msm_dsi_phy *phy)
 
 	phy->vco_hw = &pll_10nm->clk_hw;
 
-	/* TODO: Remove this when we have proper display handover support */
-	msm_dsi_phy_pll_save_state(phy);
+	/* Skip initial bootloader PLL save on msm8998 so ABL /2 out_div is not restored */
+	if (!(phy->cfg->quirks & DSI_PHY_10NM_QUIRK_OLD_TIMINGS))
+		msm_dsi_phy_pll_save_state(phy);
 
 	/*
 	 * Store also proper vco_current_rate, because its value will be used in
-	 * dsi_10nm_pll_restore_state().
+	 * dsi_10nm_pll_restore_state() and initial prepare before set_rate().
 	 */
-	if (!dsi_pll_10nm_vco_recalc_rate(&pll_10nm->clk_hw, VCO_REF_CLK_RATE))
+	pll_10nm->vco_current_rate =
+		dsi_pll_10nm_vco_recalc_rate(&pll_10nm->clk_hw, VCO_REF_CLK_RATE);
+	if (pll_10nm->vco_current_rate < pll_10nm->phy->cfg->min_pll_rate)
 		pll_10nm->vco_current_rate = pll_10nm->phy->cfg->min_pll_rate;
 
 	return 0;

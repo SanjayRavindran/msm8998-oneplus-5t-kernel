@@ -595,7 +595,7 @@ static void dpu_encoder_phys_cmd_prepare_for_kickoff(
 	if (ret) {
 		/* force pending_kickoff_cnt 0 to discard failed kickoff */
 		atomic_set(&phys_enc->pending_kickoff_cnt, 0);
-		DRM_ERROR("failed wait_for_idle: id:%u ret:%d pp:%d\n",
+		DRM_ERROR_RATELIMITED("failed wait_for_idle: id:%u ret:%d pp:%d\n",
 			  DRMID(phys_enc->parent), ret,
 			  phys_enc->hw_pp->idx - PINGPONG_0);
 	}
@@ -637,8 +637,6 @@ static void dpu_encoder_phys_cmd_enable_te(struct dpu_encoder_phys *phys_enc)
 static int _dpu_encoder_phys_cmd_wait_for_ctl_start(
 		struct dpu_encoder_phys *phys_enc)
 {
-	struct dpu_encoder_phys_cmd *cmd_enc =
-			to_dpu_encoder_phys_cmd(phys_enc);
 	struct dpu_encoder_wait_info wait_info;
 	int ret;
 
@@ -651,7 +649,9 @@ static int _dpu_encoder_phys_cmd_wait_for_ctl_start(
 			dpu_encoder_phys_cmd_ctl_start_irq,
 			&wait_info);
 	if (ret == -ETIMEDOUT) {
-		DPU_ERROR_CMDENC(cmd_enc, "ctl start interrupt wait failed\n");
+		DPU_ERROR_RATELIMITED("enc%d intf%d ctl start interrupt wait failed\n",
+				      DRMID(phys_enc->parent),
+				      phys_enc->hw_intf ? phys_enc->hw_intf->idx - INTF_0 : -1);
 		ret = -EINVAL;
 	} else if (!ret)
 		ret = 0;
@@ -666,7 +666,7 @@ static int dpu_encoder_phys_cmd_wait_for_tx_complete(
 
 	rc = _dpu_encoder_phys_cmd_wait_for_idle(phys_enc);
 	if (rc) {
-		DRM_ERROR("failed wait_for_idle: id:%u ret:%d intf:%d\n",
+		DRM_ERROR_RATELIMITED("failed wait_for_idle: id:%u ret:%d intf:%d\n",
 			  DRMID(phys_enc->parent), rc,
 			  phys_enc->hw_intf->idx - INTF_0);
 	}
@@ -681,7 +681,11 @@ static int dpu_encoder_phys_cmd_wait_for_commit_done(
 	if (!dpu_encoder_phys_cmd_is_master(phys_enc))
 		return 0;
 
-	if (phys_enc->hw_ctl->ops.is_started(phys_enc->hw_ctl))
+	if (phys_enc->enable_state == DPU_ENC_DISABLED)
+		return 0;
+
+	if (!phys_enc->irq[INTR_IDX_CTL_START] ||
+	    phys_enc->hw_ctl->ops.is_started(phys_enc->hw_ctl))
 		return dpu_encoder_phys_cmd_wait_for_tx_complete(phys_enc);
 
 	return _dpu_encoder_phys_cmd_wait_for_ctl_start(phys_enc);

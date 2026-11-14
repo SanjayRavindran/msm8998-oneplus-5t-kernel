@@ -303,6 +303,10 @@ static u64 _dpu_core_perf_get_core_clk_rate(struct dpu_kms *kms)
 		}
 	}
 
+	/* Without an interconnect driver (num_paths == 0), use max MDP OPP clock to avoid CMD FIFO underflow */
+	if (clk_rate && !kms->num_paths && kms->perf.max_core_clk_rate)
+		return kms->perf.max_core_clk_rate;
+
 	return clk_rate;
 }
 

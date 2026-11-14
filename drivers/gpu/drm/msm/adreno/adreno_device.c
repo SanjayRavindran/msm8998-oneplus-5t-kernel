@@ -6,6 +6,7 @@
  * Copyright (c) 2014,2017 The Linux Foundation. All rights reserved.
  */
 
+#include <drm/drm_file.h>
 #include "adreno_gpu.h"
 
 bool hang_debug = false;
@@ -123,7 +124,10 @@ struct msm_gpu *adreno_load_gpu(struct drm_device *dev)
 #ifdef CONFIG_DEBUG_FS
 	if (gpu->funcs->debugfs_init) {
 		gpu->funcs->debugfs_init(gpu, dev->primary);
-		gpu->funcs->debugfs_init(gpu, dev->render);
+		if (dev->render &&
+		    (!dev->primary ||
+		     dev->render->debugfs_root != dev->primary->debugfs_root))
+			gpu->funcs->debugfs_init(gpu, dev->render);
 	}
 #endif
 

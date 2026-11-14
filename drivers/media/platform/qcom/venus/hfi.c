@@ -71,6 +71,7 @@ int hfi_core_init(struct venus_core *core)
 	ret = 0;
 
 	if (core->error != HFI_ERR_NONE) {
+		dev_err(core->dev, "hfi_core_init failed: %d\n", core->error);
 		ret = -EIO;
 		goto unlock;
 	}

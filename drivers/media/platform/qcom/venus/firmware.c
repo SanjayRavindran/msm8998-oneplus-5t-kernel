@@ -249,8 +249,11 @@ int venus_boot(struct venus_core *core)
 	else
 		ret = venus_boot_no_tz(core, mem_phys, mem_size);
 
-	if (ret)
+	if (ret) {
+		dev_err(dev, "venus boot failed (%s): %d\n",
+			core->use_tz ? "tz" : "no-tz", ret);
 		return ret;
+	}
 
 	if (core->use_tz && res->cp_size) {
 		/*

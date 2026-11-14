@@ -414,13 +414,17 @@ static int venus_probe(struct platform_device *pdev)
 
 	if (core->pm_ops->core_get) {
 		ret = core->pm_ops->core_get(core);
-		if (ret)
+		if (ret) {
+			dev_err(dev, "core_get failed: %d\n", ret);
 			return ret;
+		}
 	}
 
 	ret = dma_set_mask_and_coherent(dev, core->res->dma_mask);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "dma_set_mask_and_coherent failed: %d\n", ret);
 		goto err_core_put;
+	}
 
 	dma_set_max_seg_size(dev, UINT_MAX);
 
@@ -430,73 +434,102 @@ static int venus_probe(struct platform_device *pdev)
 	init_waitqueue_head(&core->sys_err_done);
 
 	ret = hfi_create(core, &venus_core_ops);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "hfi_create failed: %d\n", ret);
 		goto err_core_put;
+	}
 
 	ret = devm_request_threaded_irq(dev, core->irq, hfi_isr, venus_isr_thread,
 					IRQF_TRIGGER_HIGH | IRQF_ONESHOT,
 					"venus", core);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "request_threaded_irq failed: %d\n", ret);
 		goto err_core_put;
+	}
 
 	venus_assign_register_offsets(core);
 
 	ret = v4l2_device_register(dev, &core->v4l2_dev);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "v4l2_device_register failed: %d\n", ret);
 		goto err_hfi_destroy;
+	}
 
 	platform_set_drvdata(pdev, core);
 
 	pm_runtime_enable(dev);
 
 	ret = pm_runtime_get_sync(dev);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(dev, "pm_runtime_get_sync failed: %d\n", ret);
 		goto err_runtime_disable;
+	}
 
 	ret = venus_firmware_init(core);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "venus_firmware_init failed: %d\n", ret);
 		goto err_runtime_disable;
+	}
 
 	ret = venus_boot(core);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "venus_boot failed: %d\n", ret);
 		goto err_firmware_deinit;
+	}
 
 	ret = venus_firmware_cfg(core);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "venus_firmware_cfg failed: %d\n", ret);
 		goto err_venus_shutdown;
+	}
 
 	ret = hfi_core_resume(core, true);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "hfi_core_resume failed: %d\n", ret);
 		goto err_venus_shutdown;
+	}
 
 	ret = hfi_core_init(core);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "hfi_core_init failed: %d\n", ret);
 		goto err_venus_shutdown;
+	}
 
 	ret = venus_firmware_check(core);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "venus_firmware_check failed: %d\n", ret);
 		goto err_core_deinit;
+	}
 
 	if (core->res->dec_nodename || core->res->enc_nodename) {
 		ret = venus_add_dynamic_nodes(core);
-		if (ret)
+		if (ret) {
+			dev_err(dev, "venus_add_dynamic_nodes failed: %d\n", ret);
 			goto err_core_deinit;
+		}
 	}
 
 	ret = of_platform_populate(dev->of_node, NULL, NULL, dev);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "of_platform_populate failed: %d\n", ret);
 		goto err_remove_dynamic_nodes;
+	}
 
 	ret = venus_enumerate_codecs(core, VIDC_SESSION_TYPE_DEC);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "venus_enumerate_codecs dec failed: %d\n", ret);
 		goto err_of_depopulate;
+	}
 
 	ret = venus_enumerate_codecs(core, VIDC_SESSION_TYPE_ENC);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "venus_enumerate_codecs enc failed: %d\n", ret);
 		goto err_of_depopulate;
+	}
 
 	ret = pm_runtime_put_sync(dev);
 	if (ret) {
+		dev_err(dev, "pm_runtime_put_sync failed: %d\n", ret);
 		pm_runtime_get_noresume(dev);
 		goto err_of_depopulate;
 	}
@@ -636,17 +669,23 @@ static __maybe_unused int venus_runtime_resume(struct device *dev)
 	int ret;
 
 	ret = icc_set_bw(core->video_path, kbps_to_icc(20000), 0);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "icc_set_bw video_path failed: %d\n", ret);
 		return ret;
+	}
 
 	ret = icc_set_bw(core->cpucfg_path, kbps_to_icc(1000), 0);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "icc_set_bw cpucfg_path failed: %d\n", ret);
 		return ret;
+	}
 
 	if (pm_ops->core_power) {
 		ret = pm_ops->core_power(core, POWER_ON);
-		if (ret)
+		if (ret) {
+			dev_err(dev, "core_power POWER_ON failed: %d\n", ret);
 			return ret;
+		}
 	}
 
 	return hfi_core_resume(core, false);

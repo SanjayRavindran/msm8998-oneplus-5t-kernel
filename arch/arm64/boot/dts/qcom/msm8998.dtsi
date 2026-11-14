@@ -1586,7 +1586,7 @@
 				};
 
 				opp-257000000 {
-					opp-hz = /bits/ 64 <257000000>;
+					opp-hz = /bits/ 64 <257000024>;
 					opp-level = <RPM_SMD_LEVEL_MIN_SVS>;
 					opp-supported-hw = <0xff>;
 				};
@@ -2836,6 +2836,7 @@
 
 			power-domains = <&mmcc MDSS_GDSC>;
 			iommus = <&mmss_smmu 0>;
+			resets = <&mmcc MDSS_BCR>;
 
 			#address-cells = <1>;
 			#size-cells = <1>;

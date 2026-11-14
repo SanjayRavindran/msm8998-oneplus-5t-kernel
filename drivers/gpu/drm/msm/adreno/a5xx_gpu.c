@@ -1562,7 +1562,8 @@ static void a5xx_gpu_state_get_hlsq_regs(struct msm_gpu *gpu,
 		struct a5xx_gpu_state *a5xx_state)
 {
 	struct a5xx_crashdumper dumper = { 0 };
-	u32 offset, count = 0;
+	u64 offset;
+	u32 count = 0;
 	u64 *ptr;
 	int i;
 
@@ -1580,8 +1581,10 @@ static void a5xx_gpu_state_get_hlsq_regs(struct msm_gpu *gpu,
 		count += a5xx_hlsq_aperture_regs[i].count;
 
 	a5xx_state->hlsqregs = kcalloc(count, sizeof(u32), GFP_KERNEL);
-	if (!a5xx_state->hlsqregs)
+	if (!a5xx_state->hlsqregs) {
+		msm_gem_kernel_put(dumper.bo, gpu->vm);
 		return;
+	}
 
 	/* Build the crashdump script */
 	for (i = 0; i < ARRAY_SIZE(a5xx_hlsq_aperture_regs); i++) {
