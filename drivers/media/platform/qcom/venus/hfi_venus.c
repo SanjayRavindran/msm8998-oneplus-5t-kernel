@@ -409,34 +409,6 @@ static void venus_dump_mmcc_state(struct venus_core *core)
 	iounmap(mmcc);
 }
 
-static int venus_set_registers(struct venus_hfi_device *hdev)
-{
-	const struct venus_resources *res = hdev->core->res;
-	const struct reg_val *tbl = res->reg_tbl;
-	struct device *dev = hdev->core->dev;
-	unsigned int count = res->reg_tbl_size;
-	unsigned int i;
-
-	for (i = 0; i < count; i++) {
-		if (venus_skip_cpu_cgc_reg && hdev->core->use_tz &&
-		    tbl[i].reg == WRAPPER_CPU_CGC_DIS) {
-			dev_info(dev, "venus_set_registers: skipping [%u] %#x\n",
-				 i, tbl[i].reg);
-			continue;
-		}
-		dev_info(dev, "venus_set_registers: write [%u] %#x <= %#x\n",
-			 i, tbl[i].reg, tbl[i].value);
-		writel(tbl[i].value, hdev->core->base + tbl[i].reg);
-		if (venus_stop_step == 930 + (int)i) {
-			dev_info(dev, "venus_stop_step=%d reached after reg[%u] %#x\n",
-				 venus_stop_step, i, tbl[i].reg);
-			return -ECANCELED;
-		}
-	}
-
-	return 0;
-}
-
 static void venus_soft_int(struct venus_hfi_device *hdev)
 {
 	void __iomem *cpu_ic_base = hdev->core->cpu_ic_base;
@@ -628,38 +600,14 @@ static int venus_run(struct venus_hfi_device *hdev)
 		return -ECANCELED;
 	}
 
-	if (venus_wrap_clk_init & BIT(0)) {
-		dev_info(dev, "venus_run: writing WRAPPER_CLOCK_CONFIG=0\n");
-		writel(0, hdev->core->wrapper_base + WRAPPER_CLOCK_CONFIG);
-		if (venus_stop_step == 922) {
-			dev_info(dev, "venus_stop_step=922 reached after WRAPPER_CLOCK_CONFIG\n");
-			return -ECANCELED;
-		}
-	}
-
-	if (venus_wrap_clk_init & BIT(1)) {
-		dev_info(dev, "venus_run: writing WRAPPER_CPU_CLOCK_CONFIG=0\n");
-		writel(0, hdev->core->wrapper_base + WRAPPER_CPU_CLOCK_CONFIG);
-		if (venus_stop_step == 923) {
-			dev_info(dev, "venus_stop_step=923 reached after WRAPPER_CPU_CLOCK_CONFIG\n");
-			return -ECANCELED;
-		}
-	}
-
-	dev_info(dev, "venus_run: before venus_set_registers (ifaceq_da=%#llx sfr_da=%#llx)\n",
-		 (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
-	if (venus_stop_step == 929) {
-		dev_info(dev, "venus_stop_step=929 reached before venus_set_registers\n");
-		return -ECANCELED;
-	}
-
 	if (!venus_pre_pas_regs) {
-		ret = venus_set_registers(hdev);
+		ret = venus_apply_reg_presets(hdev->core);
 		if (ret)
 			return ret;
 	}
 
-	dev_info(dev, "venus_run: after venus_set_registers, before UC_REGION_ADDR\n");
+	dev_info(dev, "venus_run: before UC_REGION_ADDR (ifaceq_da=%#llx sfr_da=%#llx)\n",
+		 (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
 	if (venus_stop_step == 93) {
 		dev_info(dev, "venus_stop_step=93 reached before UC_REGION_ADDR\n");
 		return -ECANCELED;
@@ -796,24 +744,37 @@ static int venus_power_off(struct venus_hfi_device *hdev)
 
 static int venus_power_on(struct venus_hfi_device *hdev)
 {
+	struct venus_core *core = hdev->core;
+	bool cold_boot = core->fw_booted;
 	int ret;
 
 	if (hdev->power_enabled)
 		return 0;
 
-	dev_info(hdev->core->dev, "venus_power_on: before venus_set_hw_state_resume (ifaceq_da=%#llx sfr_da=%#llx)\n",
-		 (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
+	core->fw_booted = false;
+
+	dev_info(core->dev, "venus_power_on: cold_boot=%d before resume (ifaceq_da=%#llx sfr_da=%#llx)\n",
+		 cold_boot, (u64)hdev->ifaceq_table.da, (u64)hdev->sfr.da);
 	if (venus_stop_step == 91) {
-		dev_info(hdev->core->dev, "venus_stop_step=91 reached before venus_set_hw_state_resume\n");
+		dev_info(core->dev, "venus_stop_step=91 reached before venus_set_hw_state_resume\n");
 		return -ECANCELED;
 	}
 
-	if (!venus_skip_set_hw_state) {
-		ret = venus_set_hw_state_resume(hdev->core);
+	if (venus_pre_pas_regs && !cold_boot) {
+		dev_info(core->dev, "venus_power_on: applying reg presets before warm resume\n");
+		ret = venus_apply_reg_presets(core);
+		if (ret)
+			goto err;
+	}
+
+	if (cold_boot) {
+		dev_info(core->dev, "venus_power_on: ARM9 already active from pas_auth_and_reset\n");
+	} else if (!venus_skip_set_hw_state) {
+		ret = venus_set_hw_state_resume(core);
 		if (ret)
 			goto err;
 	} else {
-		dev_info(hdev->core->dev, "venus_power_on: skipped venus_set_hw_state_resume\n");
+		dev_info(core->dev, "venus_power_on: skipped venus_set_hw_state_resume\n");
 	}
 
 	dev_info(hdev->core->dev, "venus_power_on: after venus_set_hw_state_resume, before venus_run\n");

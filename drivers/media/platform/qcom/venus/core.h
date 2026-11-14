@@ -32,7 +32,6 @@
 
 extern int venus_fw_debug;
 extern int venus_stop_step;
-extern int venus_wrap_clk_init;
 extern bool venus_skip_set_hw_state;
 extern bool venus_skip_cpu_cgc_reg;
 extern bool venus_pre_pas_regs;
@@ -254,6 +253,7 @@ struct venus_core {
 	unsigned long dump_core;
 	struct of_changeset *ocs;
 	bool hwmode_dev;
+	bool fw_booted;
 };
 
 struct vdec_controls {
