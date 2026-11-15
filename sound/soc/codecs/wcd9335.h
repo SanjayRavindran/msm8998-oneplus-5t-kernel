@@ -600,6 +600,36 @@
 #define WCD9335_CDC_CLK_RST_CTRL_FS_CNT_ENABLE	BIT(0)
 #define WCD9335_CDC_CLK_RST_CTRL_FS_CNT_DISABLE	0
 #define WCD9335_CDC_TOP_TOP_CFG1	WCD9335_REG(0x0d, 0x082)
+/* Page-0 CPE RAM Power Control Registers */
+#define WCD9335_CODEC_RPM_PWR_CPE_DEEPSLP_1	WCD9335_REG(0x00, 0x012)
+#define WCD9335_CODEC_RPM_PWR_CPE_DEEPSLP_2	WCD9335_REG(0x00, 0x013)
+#define WCD9335_CODEC_RPM_PWR_CPE_DEEPSLP_3	WCD9335_REG(0x00, 0x014)
+#define WCD9335_CODEC_RPM_PWR_CPE_IRAM_SHUTDOWN	WCD9335_REG(0x00, 0x015)
+#define WCD9335_CODEC_RPM_PWR_CPE_DRAM1_SHUTDOWN WCD9335_REG(0x00, 0x016)
+#define WCD9335_CODEC_RPM_PWR_CPE_DRAM0_SHUTDOWN_1 WCD9335_REG(0x00, 0x017)
+#define WCD9335_CODEC_RPM_PWR_CPE_DRAM0_SHUTDOWN_2 WCD9335_REG(0x00, 0x018)
+
+/* Page-2 CPE Subsystem Registers */
+#define WCD9335_CPE_SS_MEM_PTR_0		WCD9335_REG(0x02, 0x001)
+#define WCD9335_CPE_SS_MEM_PTR_1		WCD9335_REG(0x02, 0x002)
+#define WCD9335_CPE_SS_MEM_PTR_2		WCD9335_REG(0x02, 0x003)
+#define WCD9335_CPE_SS_MEM_CTRL			WCD9335_REG(0x02, 0x005)
+#define WCD9335_CPE_SS_MEM_BANK_0		WCD9335_REG(0x02, 0x006)
+#define WCD9335_CPE_SS_INBOX1_TRG		WCD9335_REG(0x02, 0x016)
+#define WCD9335_CPE_SS_INBOX1_0			WCD9335_REG(0x02, 0x018)
+#define WCD9335_CPE_SS_OUTBOX1_0		WCD9335_REG(0x02, 0x028)
+#define WCD9335_CPE_SS_OUTBOX1_ACK		WCD9335_REG(0x02, 0x058)
+#define WCD9335_CPE_SS_OUTBOX2_ACK		WCD9335_REG(0x02, 0x059)
+#define WCD9335_CPE_SS_CPARMAD_BUFRDY_INT_PERIOD WCD9335_REG(0x02, 0x05c)
+#define WCD9335_CPE_SS_CFG			WCD9335_REG(0x02, 0x05d)
+#define WCD9335_CPE_SS_CPAR_CTL			WCD9335_REG(0x02, 0x060)
+#define WCD9335_CPE_SS_CPAR_CFG			WCD9335_REG(0x02, 0x071)
+#define WCD9335_CPE_SS_WDOG_CFG			WCD9335_REG(0x02, 0x072)
+#define WCD9335_CPE_SS_STATUS			WCD9335_REG(0x02, 0x074)
+#define WCD9335_CPE_SS_SS_ERROR_INT_MASK	WCD9335_REG(0x02, 0x076)
+#define WCD9335_CPE_SS_SS_ERROR_INT_STATUS	WCD9335_REG(0x02, 0x077)
+#define WCD9335_CPE_SS_SS_ERROR_INT_CLEAR	WCD9335_REG(0x02, 0x078)
+
 #define WCD9335_MAX_REGISTER	0xffff
 #define WCD9335_SEL_REGISTER	0x800
 
@@ -631,11 +661,36 @@
 #define	WCD9335_IRQ_MBHC_BUTTON_PRESS_DET	10
 #define	WCD9335_IRQ_MBHC_BUTTON_RELEASE_DET	11
 #define	WCD9335_IRQ_MBHC_ELECT_INS_REM_LEG_DET	12
+#define	WCD9335_IRQ_SVA_ERROR			23
+#define	WCD9335_IRQ_SVA_OUTBOX1			29
 
 #define SLIM_MANF_ID_QCOM			0x217
 #define SLIM_PROD_CODE_WCD9335			0x1a0
 
 #define WCD9335_VERSION_2_0     2
 #define WCD9335_MAX_SUPPLY	5
+
+struct wcd9335_cpe;
+
+#if IS_ENABLED(CONFIG_SND_SOC_WCD9335_CPE)
+struct wcd9335_cpe *wcd9335_cpe_init(struct device *dev, struct regmap *regmap,
+				     int virq_outbox1, int virq_err,
+				     int (*mclk_ctrl)(struct device *, bool, u32 *));
+void wcd9335_cpe_deinit(struct wcd9335_cpe *cpe);
+struct wcd9335_cpe *wcd9335_dev_get_cpe(struct device *dev);
+#else
+static inline struct wcd9335_cpe *wcd9335_cpe_init(struct device *dev,
+						   struct regmap *regmap,
+						   int virq_outbox1, int virq_err,
+						   int (*mclk_ctrl)(struct device *, bool, u32 *))
+{
+	return NULL;
+}
+static inline void wcd9335_cpe_deinit(struct wcd9335_cpe *cpe) { }
+static inline struct wcd9335_cpe *wcd9335_dev_get_cpe(struct device *dev)
+{
+	return NULL;
+}
+#endif
 
 #endif /* __WCD9335_H__ */

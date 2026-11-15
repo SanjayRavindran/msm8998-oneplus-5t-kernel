@@ -2303,6 +2303,14 @@ config SND_SOC_WCD9335
 	  Qualcomm Technologies, Inc. (QTI) multimedia solutions,
 	  including the MSM8996, MSM8976, and MSM8956 chipsets.
 
+config SND_SOC_WCD9335_CPE
+	bool "WCD9335 Codec Processing Engine (CPE) DSP firmware loader"
+	depends on SND_SOC_WCD9335
+	select FW_LOADER
+	help
+	  Say Y here to enable the clean-room Xtensa DSP firmware loader for
+	  the WCD9335 Codec Processing Engine (cpe_9335.mdt / cpe_9335.bXX).
+
 config SND_SOC_WCD_MBHC
 	tristate
 

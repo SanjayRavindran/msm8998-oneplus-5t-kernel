@@ -345,6 +345,7 @@ struct wcd9335_codec {
 	int dmic_0_1_clk_cnt;
 	int dmic_2_3_clk_cnt;
 	int dmic_4_5_clk_cnt;
+	struct wcd9335_cpe *cpe;
 };
 
 struct wcd9335_irq {
@@ -4860,6 +4861,54 @@ static const struct snd_soc_component_driver wcd9335_component_drv = {
 	.endianness = 1,
 };
 
+#if IS_ENABLED(CONFIG_SND_SOC_WCD9335_CPE)
+struct wcd9335_cpe *wcd9335_dev_get_cpe(struct device *dev)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(dev);
+
+	return wcd ? wcd->cpe : NULL;
+}
+
+static int wcd9335_cpe_mclk_ctrl(struct device *dev, bool enable, u32 *mclk_rate)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(dev);
+	unsigned long rate;
+	int ret;
+
+	if (!wcd)
+		return -ENODEV;
+
+	if (enable) {
+		if (!wcd->mclk_rate) {
+			rate = clk_get_rate(wcd->mclk);
+			if (!rate)
+				rate = WCD9335_MCLK_CLK_9P6MHZ;
+			wcd->mclk_rate = rate;
+		}
+		if (wcd->mclk_rate == WCD9335_MCLK_CLK_12P288MHZ)
+			regmap_update_bits(wcd->regmap,
+					   WCD9335_CODEC_RPM_CLK_MCLK_CFG,
+					   WCD9335_CODEC_RPM_CLK_MCLK_CFG_MCLK_MASK,
+					   WCD9335_CODEC_RPM_CLK_MCLK_CFG_12P288MHZ);
+		else
+			regmap_update_bits(wcd->regmap,
+					   WCD9335_CODEC_RPM_CLK_MCLK_CFG,
+					   WCD9335_CODEC_RPM_CLK_MCLK_CFG_MCLK_MASK,
+					   WCD9335_CODEC_RPM_CLK_MCLK_CFG_9P6MHZ);
+		clk_set_rate(wcd->mclk, wcd->mclk_rate);
+
+		ret = wcd9335_cdc_req_mclk_enable(wcd, true);
+		if (ret)
+			return ret;
+		if (mclk_rate)
+			*mclk_rate = wcd->mclk_rate;
+		return 0;
+	}
+
+	return wcd9335_cdc_req_mclk_enable(wcd, false);
+}
+#endif
+
 static int wcd9335_probe(struct wcd9335_codec *wcd)
 {
 	struct device *dev = wcd->dev;
@@ -4900,6 +4949,12 @@ static bool wcd9335_is_volatile_register(struct device *dev, unsigned int reg)
 	case WCD9335_ANA_MICB2:
 	case WCD9335_ANA_RCO:
 	case WCD9335_ANA_BIAS:
+	case WCD9335_ANA_CLK_TOP:
+	case WCD9335_CPE_FLL_STATUS_0...WCD9335_CPE_FLL_STATUS_3:
+	case WCD9335_CPE_SS_MEM_PTR_0...WCD9335_CPE_SS_OUTBOX2_ACK:
+	case WCD9335_CPE_SS_CFG:
+	case WCD9335_CPE_SS_CPAR_CTL:
+	case WCD9335_CPE_SS_CPAR_CFG...WCD9335_CPE_SS_SS_ERROR_INT_CLEAR:
 		return true;
 	default:
 		return false;
@@ -4949,6 +5004,14 @@ static const struct regmap_irq wcd9335_codec_irqs[] = {
 			.types_supported = IRQ_TYPE_EDGE_BOTH,
 			.type_reg_mask	= BIT(0),
 		},
+	},
+	[WCD9335_IRQ_SVA_ERROR] = {
+		.reg_offset = 2,
+		.mask = BIT(7),
+	},
+	[WCD9335_IRQ_SVA_OUTBOX1] = {
+		.reg_offset = 3,
+		.mask = BIT(5),
 	},
 };
 
@@ -5139,6 +5202,19 @@ static int wcd9335_slim_status(struct slim_device *sdev,
 	if (ret)
 		return ret;
 
+#if IS_ENABLED(CONFIG_SND_SOC_WCD9335_CPE)
+	wcd->cpe = wcd9335_cpe_init(dev, wcd->regmap,
+				    regmap_irq_get_virq(wcd->irq_data,
+							WCD9335_IRQ_SVA_OUTBOX1),
+				    regmap_irq_get_virq(wcd->irq_data,
+							WCD9335_IRQ_SVA_ERROR),
+				    wcd9335_cpe_mclk_ctrl);
+	if (IS_ERR(wcd->cpe)) {
+		dev_warn(dev, "WCD9335 CPE init failed (%ld)\n", PTR_ERR(wcd->cpe));
+		wcd->cpe = NULL;
+	}
+#endif
+
 	wcd9335_probe(wcd);
 
 	return 0;
@@ -5150,11 +5226,20 @@ static const struct slim_device_id wcd9335_slim_id[] = {
 };
 MODULE_DEVICE_TABLE(slim, wcd9335_slim_id);
 
+static void wcd9335_slim_remove(struct slim_device *sdev)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(&sdev->dev);
+
+	if (wcd && wcd->cpe)
+		wcd9335_cpe_deinit(wcd->cpe);
+}
+
 static struct slim_driver wcd9335_slim_driver = {
 	.driver = {
 		.name = "wcd9335-slim",
 	},
 	.probe = wcd9335_slim_probe,
+	.remove = wcd9335_slim_remove,
 	.device_status = wcd9335_slim_status,
 	.id_table = wcd9335_slim_id,
 };
