@@ -19,8 +19,12 @@
 #include <linux/pm_wakeirq.h>
 #include <linux/of.h>
 #include <linux/power_supply.h>
+#include <linux/mutex.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/types.h>
+#include <linux/usb/role.h>
+#include <linux/usb/typec.h>
 #include <linux/workqueue.h>
 
 /* clang-format off */
@@ -100,6 +104,13 @@
 #define USBIN_UV_RT_STS_BIT				BIT(2)
 #define USBIN_LT_3P6V_RT_STS_BIT			BIT(1)
 #define USBIN_COLLAPSE_RT_STS_BIT			BIT(0)
+
+#define OTG_STATUS					0x109
+#define OTG_BOOST_SOFTSTART_DONE_BIT			BIT(3)
+#define OTG_STATE_MASK					GENMASK(2, 0)
+
+#define CMD_OTG						0x140
+#define OTG_EN_BIT					BIT(0)
 
 #define OTG_CFG						0x153
 #define OTG_RESERVED_MASK				GENMASK(7, 6)
@@ -397,6 +408,13 @@ struct smb_chip {
 	struct iio_channel *usb_in_v_chan;
 
 	struct power_supply *chg_psy;
+
+	struct mutex typec_lock;
+	struct fwnode_handle *connector;
+	struct typec_port *typec_port;
+	struct typec_partner *typec_partner;
+	struct usb_role_switch *role_sw;
+	bool otg_enabled;
 };
 
 static enum power_supply_property smb_properties[] = {
@@ -415,6 +433,11 @@ static int smb_get_prop_usb_online(struct smb_chip *chip, int *val)
 {
 	unsigned int stat;
 	int rc;
+
+	if (chip->otg_enabled) {
+		*val = 0;
+		return 0;
+	}
 
 	rc = regmap_read(chip->regmap, chip->base + POWER_PATH_STATUS, &stat);
 	if (rc < 0) {
@@ -765,6 +788,241 @@ static irqreturn_t smb_handle_wdog_bark(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static int smb_set_otg_vbus(struct smb_chip *chip, bool enable)
+{
+	unsigned int status = 0;
+	int rc;
+
+	lockdep_assert_held(&chip->typec_lock);
+
+	if (chip->otg_enabled == enable)
+		return 0;
+
+	if (enable) {
+		rc = regmap_update_bits(chip->regmap,
+					chip->base + OTG_ENG_OTG_CFG,
+					ENG_BUCKBOOST_HALT1_8_MODE_BIT,
+					ENG_BUCKBOOST_HALT1_8_MODE_BIT);
+		if (rc < 0)
+			return rc;
+
+		rc = regmap_write(chip->regmap, chip->base + CMD_OTG, OTG_EN_BIT);
+		if (rc < 0)
+			return rc;
+
+		rc = regmap_read_poll_timeout(chip->regmap,
+					      chip->base + OTG_STATUS, status,
+					      status & OTG_BOOST_SOFTSTART_DONE_BIT,
+					      2000, 50000);
+		if (rc < 0) {
+			dev_err(chip->dev,
+				"OTG VBUS boost enable timed out (0x%02x)\n",
+				status);
+			regmap_write(chip->regmap, chip->base + CMD_OTG, 0);
+			return rc;
+		}
+		chip->otg_enabled = true;
+		return 0;
+	}
+
+	rc = regmap_write(chip->regmap, chip->base + CMD_OTG, 0);
+	if (rc < 0)
+		return rc;
+
+	chip->otg_enabled = false;
+	return 0;
+}
+
+static void smb_unregister_partner(struct smb_chip *chip)
+{
+	if (chip->typec_partner) {
+		typec_unregister_partner(chip->typec_partner);
+		chip->typec_partner = NULL;
+	}
+}
+
+static void smb_register_partner(struct smb_chip *chip,
+				 enum typec_accessory accessory)
+{
+	struct typec_partner_desc desc = {
+		.accessory = accessory,
+	};
+
+	if (chip->typec_partner)
+		return;
+
+	chip->typec_partner = typec_register_partner(chip->typec_port, &desc);
+	if (IS_ERR(chip->typec_partner)) {
+		dev_warn(chip->dev, "Failed to register Type-C partner: %ld\n",
+			 PTR_ERR(chip->typec_partner));
+		chip->typec_partner = NULL;
+	}
+}
+
+static int smb_update_typec_state(struct smb_chip *chip)
+{
+	u8 status[4];
+	u8 status1, status2, status4;
+	enum typec_orientation orient;
+	enum typec_pwr_opmode opmode = TYPEC_PWR_MODE_USB;
+	enum typec_accessory accessory = TYPEC_ACCESSORY_NONE;
+	int rc;
+
+	mutex_lock(&chip->typec_lock);
+
+	rc = regmap_bulk_read(chip->regmap, chip->base + TYPE_C_STATUS_1,
+			      status, sizeof(status));
+	if (rc < 0) {
+		dev_err(chip->dev, "Failed to read Type-C status: %d\n", rc);
+		goto out_unlock;
+	}
+
+	status1 = status[0];
+	status2 = status[1];
+	status4 = status[3];
+
+	if (!(status4 & CC_ATTACHED_BIT)) {
+		smb_set_otg_vbus(chip, false);
+		smb_unregister_partner(chip);
+		usb_role_switch_set_role(chip->role_sw, USB_ROLE_NONE);
+		typec_set_orientation(chip->typec_port, TYPEC_ORIENTATION_NONE);
+		typec_set_pwr_opmode(chip->typec_port, TYPEC_PWR_MODE_USB);
+		goto out_unlock;
+	}
+
+	orient = (status4 & CC_ORIENTATION_BIT) ? TYPEC_ORIENTATION_REVERSE
+						: TYPEC_ORIENTATION_NORMAL;
+	typec_set_orientation(chip->typec_port, orient);
+
+	if (status4 & UFP_DFP_MODE_STATUS_BIT) {
+		if ((status4 & TYPEC_UFP_AUDIO_ADAPT_STATUS_BIT) ||
+		    (status2 & DFP_RA_RA_BIT)) {
+			accessory = TYPEC_ACCESSORY_AUDIO;
+			smb_set_otg_vbus(chip, false);
+			usb_role_switch_set_role(chip->role_sw, USB_ROLE_NONE);
+		} else if (status2 & DFP_RD_RD_BIT) {
+			accessory = TYPEC_ACCESSORY_DEBUG;
+			smb_set_otg_vbus(chip, false);
+			usb_role_switch_set_role(chip->role_sw, USB_ROLE_NONE);
+		} else if (status2 & (DFP_RD_OPEN_BIT | DFP_RD_RA_VCONN_BIT)) {
+			/* Sink attached: source 5V OTG VBUS and enter Host mode */
+			smb_set_otg_vbus(chip, true);
+			usb_role_switch_set_role(chip->role_sw, USB_ROLE_HOST);
+			typec_set_pwr_role(chip->typec_port, TYPEC_SOURCE);
+			typec_set_data_role(chip->typec_port, TYPEC_HOST);
+			typec_set_pwr_opmode(chip->typec_port, TYPEC_PWR_MODE_USB);
+		}
+	} else {
+		/* DFP/charger attached: ensure OTG boost off and enter Device mode */
+		smb_set_otg_vbus(chip, false);
+		if (status1 & UFP_TYPEC_RD3P0_BIT)
+			opmode = TYPEC_PWR_MODE_3_0A;
+		else if (status1 & UFP_TYPEC_RD1P5_BIT)
+			opmode = TYPEC_PWR_MODE_1_5A;
+		usb_role_switch_set_role(chip->role_sw, USB_ROLE_DEVICE);
+		typec_set_pwr_role(chip->typec_port, TYPEC_SINK);
+		typec_set_data_role(chip->typec_port, TYPEC_DEVICE);
+		typec_set_pwr_opmode(chip->typec_port, opmode);
+	}
+
+	smb_register_partner(chip, accessory);
+
+out_unlock:
+	mutex_unlock(&chip->typec_lock);
+	return rc;
+}
+
+static irqreturn_t smb_handle_typec_change(int irq, void *data)
+{
+	struct smb_chip *chip = data;
+
+	smb_update_typec_state(chip);
+	power_supply_changed(chip->chg_psy);
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t smb_handle_otg_overcurrent(int irq, void *data)
+{
+	struct smb_chip *chip = data;
+
+	dev_err(chip->dev, "OTG VBUS overcurrent detected, disabling boost\n");
+	mutex_lock(&chip->typec_lock);
+	smb_set_otg_vbus(chip, false);
+	usb_role_switch_set_role(chip->role_sw, USB_ROLE_NONE);
+	mutex_unlock(&chip->typec_lock);
+
+	return IRQ_HANDLED;
+}
+
+static int smb_typec_port_type_set(struct typec_port *port,
+				   enum typec_port_type type)
+{
+	struct smb_chip *chip = typec_get_drvdata(port);
+	u8 role_cmd = 0;
+
+	switch (type) {
+	case TYPEC_PORT_SRC:
+		role_cmd = DFP_EN_CMD_BIT;
+		break;
+	case TYPEC_PORT_SNK:
+		role_cmd = UFP_EN_CMD_BIT;
+		break;
+	case TYPEC_PORT_DRP:
+		role_cmd = 0;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return regmap_update_bits(chip->regmap,
+				  chip->base + TYPE_C_INTRPT_ENB_SOFTWARE_CTRL,
+				  TYPEC_POWER_ROLE_CMD_MASK, role_cmd);
+}
+
+static int smb_typec_dr_set(struct typec_port *port, enum typec_data_role role)
+{
+	struct smb_chip *chip = typec_get_drvdata(port);
+	enum usb_role usb_role = (role == TYPEC_HOST) ? USB_ROLE_HOST
+						      : USB_ROLE_DEVICE;
+	int rc;
+
+	mutex_lock(&chip->typec_lock);
+	rc = usb_role_switch_set_role(chip->role_sw, usb_role);
+	if (!rc)
+		typec_set_data_role(port, role);
+	mutex_unlock(&chip->typec_lock);
+
+	return rc;
+}
+
+static int smb_typec_pr_set(struct typec_port *port, enum typec_role role)
+{
+	struct smb_chip *chip = typec_get_drvdata(port);
+	u8 role_cmd = (role == TYPEC_SOURCE) ? DFP_EN_CMD_BIT : UFP_EN_CMD_BIT;
+	int rc;
+
+	mutex_lock(&chip->typec_lock);
+	rc = smb_set_otg_vbus(chip, role == TYPEC_SOURCE);
+	if (rc < 0)
+		goto out_unlock;
+
+	rc = regmap_update_bits(chip->regmap,
+				  chip->base + TYPE_C_INTRPT_ENB_SOFTWARE_CTRL,
+				  TYPEC_POWER_ROLE_CMD_MASK, role_cmd);
+	if (!rc)
+		typec_set_pwr_role(port, role);
+
+out_unlock:
+	mutex_unlock(&chip->typec_lock);
+	return rc;
+}
+
+static const struct typec_operations smb_typec_ops = {
+	.port_type_set = smb_typec_port_type_set,
+	.dr_set = smb_typec_dr_set,
+	.pr_set = smb_typec_pr_set,
+};
+
 static const struct power_supply_desc smb_psy_desc = {
 	.name = "pmi8998_charger",
 	.type = POWER_SUPPLY_TYPE_USB,
@@ -924,6 +1182,106 @@ static int smb_init_irq(struct smb_chip *chip, int *irq, const char *name,
 	return 0;
 }
 
+static void smb_typec_cleanup(void *data)
+{
+	struct smb_chip *chip = data;
+
+	mutex_lock(&chip->typec_lock);
+	smb_set_otg_vbus(chip, false);
+	smb_unregister_partner(chip);
+	mutex_unlock(&chip->typec_lock);
+
+	if (chip->typec_port)
+		typec_unregister_port(chip->typec_port);
+	if (!IS_ERR_OR_NULL(chip->role_sw))
+		usb_role_switch_put(chip->role_sw);
+	fwnode_handle_put(chip->connector);
+}
+
+static int smb_init_typec(struct smb_chip *chip)
+{
+	struct typec_capability cap = { };
+	const char *cap_str;
+	int rc;
+
+	mutex_init(&chip->typec_lock);
+	chip->connector = device_get_named_child_node(chip->dev, "connector");
+	if (!chip->connector)
+		return 0;
+
+	chip->role_sw = fwnode_usb_role_switch_get(chip->connector);
+	if (IS_ERR(chip->role_sw)) {
+		rc = PTR_ERR(chip->role_sw);
+		chip->role_sw = NULL;
+		fwnode_handle_put(chip->connector);
+		chip->connector = NULL;
+		return dev_err_probe(chip->dev, rc,
+				     "Failed to get USB role switch\n");
+	}
+
+	cap.type = TYPEC_PORT_DRP;
+	cap.data = TYPEC_PORT_DRD;
+	cap.prefer_role = TYPEC_SINK;
+	cap.revision = 0x0120;
+	cap.orientation_aware = 1;
+	cap.accessory[0] = TYPEC_ACCESSORY_AUDIO;
+	cap.accessory[1] = TYPEC_ACCESSORY_DEBUG;
+	cap.fwnode = chip->connector;
+	cap.driver_data = chip;
+	cap.ops = &smb_typec_ops;
+
+	if (!fwnode_property_read_string(chip->connector, "power-role", &cap_str)) {
+		rc = typec_find_port_power_role(cap_str);
+		if (rc >= 0)
+			cap.type = rc;
+	}
+	if (!fwnode_property_read_string(chip->connector, "data-role", &cap_str)) {
+		rc = typec_find_port_data_role(cap_str);
+		if (rc >= 0)
+			cap.data = rc;
+	}
+	if (!fwnode_property_read_string(chip->connector, "try-power-role", &cap_str)) {
+		rc = typec_find_power_role(cap_str);
+		if (rc >= 0)
+			cap.prefer_role = rc;
+	}
+
+	chip->typec_port = typec_register_port(chip->dev, &cap);
+	if (IS_ERR(chip->typec_port)) {
+		rc = PTR_ERR(chip->typec_port);
+		chip->typec_port = NULL;
+		usb_role_switch_put(chip->role_sw);
+		chip->role_sw = NULL;
+		fwnode_handle_put(chip->connector);
+		chip->connector = NULL;
+		return dev_err_probe(chip->dev, rc,
+				     "Failed to register Type-C port\n");
+	}
+
+	rc = devm_add_action_or_reset(chip->dev, smb_typec_cleanup, chip);
+	if (rc < 0)
+		return rc;
+
+	rc = smb_init_irq(chip, NULL, "type-c-change", smb_handle_typec_change);
+	if (rc < 0)
+		return rc;
+
+	rc = platform_get_irq_byname_optional(to_platform_device(chip->dev),
+					      "otg-overcurrent");
+	if (rc > 0) {
+		rc = devm_request_threaded_irq(chip->dev, rc, NULL,
+					       smb_handle_otg_overcurrent,
+					       IRQF_ONESHOT,
+					       "otg-overcurrent", chip);
+		if (rc < 0)
+			return dev_err_probe(chip->dev, rc,
+					     "Couldn't request irq otg-overcurrent\n");
+	}
+
+	smb_update_typec_state(chip);
+	return 0;
+}
+
 static int smb_probe(struct platform_device *pdev)
 {
 	struct power_supply_config supply_config = {};
@@ -1013,6 +1371,10 @@ static int smb_probe(struct platform_device *pdev)
 	if (rc < 0)
 		return rc;
 	rc = smb_init_irq(chip, &irq, "wdog-bark", smb_handle_wdog_bark);
+	if (rc < 0)
+		return rc;
+
+	rc = smb_init_typec(chip);
 	if (rc < 0)
 		return rc;
 

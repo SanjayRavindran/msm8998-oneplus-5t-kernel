@@ -7,6 +7,7 @@
  * Copyright (C) 2013 Sony Mobile Communications Inc.
  */
 
+#include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
@@ -48,6 +49,7 @@
 #define TFA989X_CURRENTSENSE4		0x49
 
 #define TFA9890_REVISION		0x80
+#define TFA9891_REVISION		0x81
 #define TFA9895_REVISION		0x12
 #define TFA9897_REVISION		0x97
 
@@ -59,6 +61,8 @@ struct tfa989x_rev {
 struct tfa989x {
 	const struct tfa989x_rev *rev;
 	struct regulator *vddd_supply;
+	struct regulator *vddp_supply;
+	struct gpio_desc *reset_gpiod;
 	struct gpio_desc *rcv_gpiod;
 };
 
@@ -216,6 +220,26 @@ static const struct tfa989x_rev tfa9890_rev = {
 	.init	= tfa9890_init,
 };
 
+static const struct reg_sequence tfa9891_reg_init[] = {
+	{ TFA989X_SYS_CTRL, 0x025d },
+	{ 0x10, 0x0018 },
+	{ 0x22, 0x0003 },
+	{ 0x25, 0x0001 },
+	{ TFA989X_CURRENTSENSE1, 0x0000 },
+	{ 0x55, 0x3ffb },
+};
+
+static int tfa9891_init(struct regmap *regmap)
+{
+	return regmap_multi_reg_write(regmap, tfa9891_reg_init,
+				      ARRAY_SIZE(tfa9891_reg_init));
+}
+
+static const struct tfa989x_rev tfa9891_rev = {
+	.rev	= TFA9891_REVISION,
+	.init	= tfa9891_init,
+};
+
 static const struct reg_sequence tfa9895_reg_init[] = {
 	/* some other registers must be set for optimal amplifier behaviour */
 	{ TFA989X_BAT_PROT, 0x13ab },
@@ -311,6 +335,8 @@ static void tfa989x_regulator_disable(void *data)
 {
 	struct tfa989x *tfa989x = data;
 
+	if (tfa989x->vddp_supply)
+		regulator_disable(tfa989x->vddp_supply);
 	regulator_disable(tfa989x->vddd_supply);
 }
 
@@ -341,6 +367,20 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 		return dev_err_probe(dev, PTR_ERR(tfa989x->vddd_supply),
 				     "Failed to get vddd regulator\n");
 
+	tfa989x->vddp_supply = devm_regulator_get_optional(dev, "vddp");
+	if (IS_ERR(tfa989x->vddp_supply)) {
+		ret = PTR_ERR(tfa989x->vddp_supply);
+		if (ret != -ENODEV)
+			return dev_err_probe(dev, ret,
+					     "Failed to get vddp regulator\n");
+		tfa989x->vddp_supply = NULL;
+	}
+
+	tfa989x->reset_gpiod = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(tfa989x->reset_gpiod))
+		return dev_err_probe(dev, PTR_ERR(tfa989x->reset_gpiod),
+				     "Failed to get reset gpio\n");
+
 	if (tfa989x->rev->rev == TFA9897_REVISION) {
 		tfa989x->rcv_gpiod = devm_gpiod_get_optional(dev, "rcv", GPIOD_OUT_LOW);
 		if (IS_ERR(tfa989x->rcv_gpiod))
@@ -357,9 +397,24 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 		return ret;
 	}
 
+	if (tfa989x->vddp_supply) {
+		ret = regulator_enable(tfa989x->vddp_supply);
+		if (ret) {
+			regulator_disable(tfa989x->vddd_supply);
+			dev_err(dev, "Failed to enable vddp regulator: %d\n", ret);
+			return ret;
+		}
+	}
+
 	ret = devm_add_action_or_reset(dev, tfa989x_regulator_disable, tfa989x);
 	if (ret)
 		return ret;
+
+	if (tfa989x->reset_gpiod) {
+		usleep_range(2000, 3000);
+		gpiod_set_value_cansleep(tfa989x->reset_gpiod, 0);
+		usleep_range(2000, 3000);
+	}
 
 	/* Bypass regcache for reset and init sequence */
 	regcache_cache_bypass(regmap, true);
@@ -405,6 +460,7 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 
 static const struct of_device_id tfa989x_of_match[] = {
 	{ .compatible = "nxp,tfa9890", .data = &tfa9890_rev },
+	{ .compatible = "nxp,tfa9891", .data = &tfa9891_rev },
 	{ .compatible = "nxp,tfa9895", .data = &tfa9895_rev },
 	{ .compatible = "nxp,tfa9897", .data = &tfa9897_rev },
 	{ }

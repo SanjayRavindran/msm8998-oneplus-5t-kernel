@@ -13,6 +13,8 @@
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
 #include <dt-bindings/thermal/thermal.h>
 #include "msm8998.dtsi"
 #include "pm8005.dtsi"
@@ -780,6 +782,153 @@
 			regulator-max-microvolt = <3600000>;
 		};
 	};
+
+	sound {
+		compatible = "qcom,msm8998-sndcard";
+		model = "OnePlus 5T";
+		pinctrl-names = "default";
+		pinctrl-0 = <&quat_mi2s_active>;
+
+		audio-routing = "RX_BIAS", "MCLK",
+				"AMIC2", "MIC BIAS2",
+				"AMIC3", "MIC BIAS2",
+				"AMIC4", "MIC BIAS2",
+				"AMIC5", "MIC BIAS3",
+				"Speaker", "Spkr OUT";
+
+		mm1-dai-link {
+			link-name = "MultiMedia1";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+			};
+		};
+
+		mm2-dai-link {
+			link-name = "MultiMedia2";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+			};
+		};
+
+		mm3-dai-link {
+			link-name = "MultiMedia3";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA3>;
+			};
+		};
+
+		mm4-dai-link {
+			link-name = "MultiMedia4";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA4>;
+			};
+		};
+
+		mm5-dai-link {
+			link-name = "MultiMedia5";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA5>;
+			};
+		};
+
+		mm6-dai-link {
+			link-name = "MultiMedia6";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA6>;
+			};
+		};
+
+		speaker-dai-link {
+			link-name = "Speaker Playback";
+			cpu {
+				sound-dai = <&q6afedai QUATERNARY_MI2S_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&tfa9891>;
+			};
+		};
+
+		slim-dai-link {
+			link-name = "SLIM Playback 1";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 0>;
+			};
+		};
+
+		slimcap-dai-link {
+			link-name = "SLIM Capture 1";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 1>;
+			};
+		};
+
+		slim2-dai-link {
+			link-name = "SLIM Playback 2";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_1_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 2>;
+			};
+		};
+
+		slimcap2-dai-link {
+			link-name = "SLIM Capture 2";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_1_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 3>;
+			};
+		};
+
+		slimcap3-dai-link {
+			link-name = "SLIM Capture 3";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_2_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 5>;
+			};
+		};
+	};
+
 };
 
 &blsp1_i2c5_sleep {
@@ -808,7 +957,35 @@
 &pmi8998_charger {
 	status = "okay";
 
+	interrupts = <0x2 0x13 0x4 IRQ_TYPE_EDGE_BOTH>,
+		     <0x2 0x12 0x2 IRQ_TYPE_EDGE_BOTH>,
+		     <0x2 0x16 0x1 IRQ_TYPE_EDGE_RISING>,
+		     <0x2 0x13 0x6 IRQ_TYPE_EDGE_RISING>,
+		     <0x2 0x13 0x7 IRQ_TYPE_EDGE_RISING>,
+		     <0x2 0x11 0x1 IRQ_TYPE_EDGE_BOTH>;
+	interrupt-names = "usb-plugin",
+			  "bat-ov",
+			  "wdog-bark",
+			  "usbin-icl-change",
+			  "type-c-change",
+			  "otg-overcurrent";
+
 	monitored-battery = <&blp637>;
+
+	connector {
+		compatible = "usb-c-connector";
+		label = "USB-C";
+		power-role = "dual";
+		data-role = "dual";
+		try-power-role = "sink";
+		typec-power-opmode = "1.5A";
+
+		port {
+			pmi8998_typec_hs: endpoint {
+				remote-endpoint = <&usb3_dwc3_hs>;
+			};
+		};
+	};
 };
 
 &remoteproc_adsp {
@@ -1010,6 +1187,36 @@
 		drive-strength = <2>;
 		bias-disable;
 	};
+
+	quat_mi2s_active: quat-mi2s-active-state {
+		pins = "gpio58", "gpio59", "gpio60", "gpio61";
+		function = "qua_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	lpass_slimbus_active: lpass-slimbus-active-state {
+		pins = "gpio70", "gpio71", "gpio72";
+		function = "lpass_slimbus";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	wcd_intr_default: wcd-intr-default-state {
+		pins = "gpio54";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	/* Lock OnePlus Dash USB D+/D- analog switch permanently to MSM8998 PHY */
+	dash_usb_sw_default: dash-usb-sw-default-state {
+		pins = "gpio90", "gpio91", "gpio96";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		output-low;
+	};
 };
 
 &ufshc {
@@ -1034,6 +1241,9 @@
 &usb3 {
 	status = "okay";
 
+	pinctrl-names = "default";
+	pinctrl-0 = <&dash_usb_sw_default>;
+
 	/* Disable USB3 clock requirement as the device only supports USB2 */
 	qcom,select-utmi-as-pipe-clk;
 };
@@ -1046,8 +1256,15 @@
 	/* Fastest mode for USB 2 */
 	maximum-speed = "high-speed";
 
-	/* Force to peripheral until we can switch modes */
-	dr_mode = "peripheral";
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
+
+	port {
+		usb3_dwc3_hs: endpoint {
+			remote-endpoint = <&pmi8998_typec_hs>;
+		};
+	};
 };
 
 &ipa {
@@ -1074,4 +1291,128 @@
 	qcom,rset-ohms = <800>;
 	qcom,vset-millivolts = <3200>;
 	status = "okay";
+};
+
+&lpass_q6_smmu {
+	status = "okay";
+};
+
+&q6afedai {
+	dai@22 {
+		reg = <QUATERNARY_MI2S_RX>;
+		qcom,sd-lines = <1>;
+	};
+
+	dai@23 {
+		reg = <QUATERNARY_MI2S_TX>;
+		qcom,sd-lines = <0>;
+	};
+};
+
+&q6asmdai {
+	dai@0 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
+	};
+
+	dai@1 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
+	};
+
+	dai@2 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA3>;
+	};
+
+	dai@3 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA4>;
+	};
+
+	dai@4 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA5>;
+	};
+
+	dai@5 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA6>;
+	};
+};
+
+&blsp2_i2c3 {
+	status = "okay";
+
+	tfa9891: audio-codec@36 {
+		compatible = "nxp,tfa9891";
+		reg = <0x36>;
+		reset-gpios = <&tlmm 49 GPIO_ACTIVE_HIGH>;
+		vddd-supply = <&vreg_s4a_1p8>;
+		vddp-supply = <&vreg_bob>;
+		sound-name-prefix = "Spkr";
+		#sound-dai-cells = <0>;
+	};
+};
+
+&slim {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&lpass_slimbus_active>;
+
+	slim@1 {
+		reg = <1>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		wcd9340_ifd: ifd@0,0 {
+			compatible = "slim217,250";
+			reg = <0 0>;
+		};
+
+		wcd9340: codec@1,0 {
+			compatible = "slim217,250";
+			reg = <1 0>;
+			slim-ifc-dev = <&wcd9340_ifd>;
+
+			#sound-dai-cells = <1>;
+
+			interrupts-extended = <&tlmm 54 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			reset-gpios = <&tlmm 64 GPIO_ACTIVE_HIGH>;
+
+			clock-names = "extclk";
+			clocks = <&rpmcc RPM_SMD_LN_BB_CLK2>;
+
+			#clock-cells = <0>;
+			clock-frequency = <9600000>;
+			clock-output-names = "mclk";
+
+			pinctrl-names = "default";
+			pinctrl-0 = <&wcd_intr_default>;
+
+			vdd-buck-supply = <&vreg_s4a_1p8>;
+			vdd-buck-sido-supply = <&vreg_s4a_1p8>;
+			vdd-tx-supply = <&vreg_s4a_1p8>;
+			vdd-rx-supply = <&vreg_s4a_1p8>;
+			vdd-io-supply = <&vreg_s4a_1p8>;
+
+			qcom,micbias1-microvolt = <1800000>;
+			qcom,micbias2-microvolt = <1800000>;
+			qcom,micbias3-microvolt = <1800000>;
+			qcom,micbias4-microvolt = <1800000>;
+
+			qcom,hphl-jack-type-normally-closed;
+			qcom,ground-jack-type-normally-closed;
+			qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
+			qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
+			qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
+
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			wcdgpio: gpio-controller@42 {
+				compatible = "qcom,wcd9340-gpio";
+				gpio-controller;
+				#gpio-cells = <2>;
+				reg = <0x42 0x2>;
+			};
+		};
+	};
 };
