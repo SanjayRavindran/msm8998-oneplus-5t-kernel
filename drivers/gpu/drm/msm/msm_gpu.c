@@ -1046,16 +1046,22 @@ int msm_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	if (IS_ERR(gpu->ebi1_clk))
 		gpu->ebi1_clk = NULL;
 
-	/* Acquire regulators: */
-	gpu->gpu_reg = devm_regulator_get(&pdev->dev, "vdd");
+	/* Acquire optional regulators: */
+	gpu->gpu_reg = devm_regulator_get_optional(&pdev->dev, "vdd");
 	DBG("gpu_reg: %p", gpu->gpu_reg);
-	if (IS_ERR(gpu->gpu_reg))
+	if (IS_ERR(gpu->gpu_reg)) {
+		if (PTR_ERR(gpu->gpu_reg) != -ENODEV)
+			return PTR_ERR(gpu->gpu_reg);
 		gpu->gpu_reg = NULL;
+	}
 
-	gpu->gpu_cx = devm_regulator_get(&pdev->dev, "vddcx");
+	gpu->gpu_cx = devm_regulator_get_optional(&pdev->dev, "vddcx");
 	DBG("gpu_cx: %p", gpu->gpu_cx);
-	if (IS_ERR(gpu->gpu_cx))
+	if (IS_ERR(gpu->gpu_cx)) {
+		if (PTR_ERR(gpu->gpu_cx) != -ENODEV)
+			return PTR_ERR(gpu->gpu_cx);
 		gpu->gpu_cx = NULL;
+	}
 
 	platform_set_drvdata(pdev, &gpu->adreno_smmu);
 
