@@ -4880,11 +4880,17 @@ static int wcd9335_cpe_mclk_ctrl(struct device *dev, bool enable, u32 *mclk_rate
 
 	if (enable) {
 		if (!wcd->mclk_rate) {
+			/*
+			 * PM8998 DIV_CLK1 runs at 9.6 MHz for OnePlus 5T audio
+			 * even when clk-smd-rpm reports nominal 19.2 MHz XO rate.
+			 */
 			rate = clk_get_rate(wcd->mclk);
-			if (!rate)
+			if (!rate || rate == 19200000)
 				rate = WCD9335_MCLK_CLK_9P6MHZ;
 			wcd->mclk_rate = rate;
 		}
+		regmap_update_bits(wcd->regmap, WCD9335_CODEC_RPM_CLK_GATE,
+				   WCD9335_CODEC_RPM_CLK_GATE_MCLK_GATE_MASK, 0);
 		if (wcd->mclk_rate == WCD9335_MCLK_CLK_12P288MHZ)
 			regmap_update_bits(wcd->regmap,
 					   WCD9335_CODEC_RPM_CLK_MCLK_CFG,
