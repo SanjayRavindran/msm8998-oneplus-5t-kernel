@@ -196,6 +196,7 @@
 #define HLOS1_VOTE_LPASS_CORE_SMMU_CLK				187
 #define HLOS1_VOTE_LPASS_ADSP_SMMU_CLK				188
 #define GCC_MSS_Q6_BIMC_AXI_CLK					189
+#define UFS_ICE_CORE_CLK_SRC					190
 
 #define PCIE_0_GDSC						0
 #define UFS_GDSC						1

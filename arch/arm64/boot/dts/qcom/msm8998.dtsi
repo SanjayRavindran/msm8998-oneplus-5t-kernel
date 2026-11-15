@@ -1072,6 +1072,15 @@
 
 			resets = <&gcc GCC_UFS_BCR>;
 			reset-names = "rst";
+			qcom,ice = <&ice>;
+		};
+
+		ice: crypto@1db0000 {
+			compatible = "qcom,inline-crypto-engine";
+			reg = <0x01db0000 0x8000>;
+			clocks = <&gcc GCC_UFS_ICE_CORE_CLK>;
+			assigned-clocks = <&gcc GCC_UFS_ICE_CORE_CLK>;
+			assigned-clock-rates = <300000000>;
 		};
 
 		ufsphy: phy@1da7000 {
