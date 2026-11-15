@@ -15,6 +15,7 @@
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/sound/qcom,q6afe.h>
 #include <dt-bindings/sound/qcom,q6asm.h>
+#include <dt-bindings/sound/qcom,wcd9335.h>
 #include <dt-bindings/thermal/thermal.h>
 #include "msm8998.dtsi"
 #include "pm8005.dtsi"
@@ -38,6 +39,15 @@
 / {
 	/* Required for bootloader to select correct board */
 	qcom,msm-id = <292 0x20001>; /* 8998 v2.1 */
+
+	div1_mclk: divclk1 {
+		compatible = "gpio-gate-clock";
+		pinctrl-names = "default";
+		pinctrl-0 = <&div_clk1>;
+		clocks = <&rpmcc RPM_SMD_DIV_CLK1>;
+		#clock-cells = <0>;
+		enable-gpios = <&pm8998_gpios 13 GPIO_ACTIVE_HIGH>;
+	};
 
 	smp2p-sleepstate-slpi {
 		compatible = "qcom,smp2p-sleepstate";
@@ -565,6 +575,12 @@
 };
 
 &pm8998_gpios {
+	div_clk1: div-clk1-state {
+		pins = "gpio13";
+		function = "func2";
+		power-source = <0>;
+	};
+
 	vol_keys_default: vol-keys-state {
 		pins = "gpio5", "gpio6";
 		function = "normal";
@@ -849,7 +865,7 @@
 			};
 
 			codec {
-				sound-dai = <&tfa9891>;
+				sound-dai = <&tfa9890>;
 			};
 		};
 
@@ -864,7 +880,7 @@
 			};
 
 			codec {
-				sound-dai = <&wcd9340 0>;
+				sound-dai = <&wcd9335 AIF1_PB>;
 			};
 		};
 
@@ -879,7 +895,7 @@
 			};
 
 			codec {
-				sound-dai = <&wcd9340 1>;
+				sound-dai = <&wcd9335 AIF1_CAP>;
 			};
 		};
 
@@ -894,7 +910,7 @@
 			};
 
 			codec {
-				sound-dai = <&wcd9340 2>;
+				sound-dai = <&wcd9335 AIF2_PB>;
 			};
 		};
 
@@ -909,7 +925,7 @@
 			};
 
 			codec {
-				sound-dai = <&wcd9340 3>;
+				sound-dai = <&wcd9335 AIF2_CAP>;
 			};
 		};
 
@@ -924,7 +940,7 @@
 			};
 
 			codec {
-				sound-dai = <&wcd9340 5>;
+				sound-dai = <&wcd9335 AIF3_CAP>;
 			};
 		};
 	};
@@ -1202,6 +1218,13 @@
 		bias-disable;
 	};
 
+	cdc_reset_active: cdc-reset-active-state {
+		pins = "gpio64";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+	};
+
 	wcd_intr_default: wcd-intr-default-state {
 		pins = "gpio54";
 		function = "gpio";
@@ -1338,8 +1361,8 @@
 &blsp2_i2c3 {
 	status = "okay";
 
-	tfa9891: audio-codec@36 {
-		compatible = "nxp,tfa9891";
+	tfa9890: audio-codec@36 {
+		compatible = "nxp,tfa9890";
 		reg = <0x36>;
 		reset-gpios = <&tlmm 49 GPIO_ACTIVE_HIGH>;
 		vddd-supply = <&vreg_s4a_1p8>;
@@ -1359,60 +1382,38 @@
 		#address-cells = <2>;
 		#size-cells = <0>;
 
-		wcd9340_ifd: ifd@0,0 {
-			compatible = "slim217,250";
+		tasha_ifd: ifd@0,0 {
+			compatible = "slim217,1a0";
 			reg = <0 0>;
 		};
 
-		wcd9340: codec@1,0 {
-			compatible = "slim217,250";
+		wcd9335: codec@1,0 {
+			compatible = "slim217,1a0";
 			reg = <1 0>;
-			slim-ifc-dev = <&wcd9340_ifd>;
+			slim-ifc-dev = <&tasha_ifd>;
 
 			#sound-dai-cells = <1>;
 
-			interrupts-extended = <&tlmm 54 IRQ_TYPE_LEVEL_HIGH>;
+			clock-names = "mclk", "slimbus";
+			clocks = <&div1_mclk>,
+				 <&rpmcc RPM_SMD_XO_CLK_SRC>;
+
+			interrupt-parent = <&tlmm>;
+			interrupts = <54 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "intr1";
 			interrupt-controller;
 			#interrupt-cells = <1>;
 
-			reset-gpios = <&tlmm 64 GPIO_ACTIVE_HIGH>;
-
-			clock-names = "extclk";
-			clocks = <&rpmcc RPM_SMD_LN_BB_CLK2>;
-
-			#clock-cells = <0>;
-			clock-frequency = <9600000>;
-			clock-output-names = "mclk";
-
 			pinctrl-names = "default";
-			pinctrl-0 = <&wcd_intr_default>;
+			pinctrl-0 = <&cdc_reset_active &wcd_intr_default>;
+
+			reset-gpios = <&tlmm 64 GPIO_ACTIVE_LOW>;
 
 			vdd-buck-supply = <&vreg_s4a_1p8>;
 			vdd-buck-sido-supply = <&vreg_s4a_1p8>;
 			vdd-tx-supply = <&vreg_s4a_1p8>;
 			vdd-rx-supply = <&vreg_s4a_1p8>;
 			vdd-io-supply = <&vreg_s4a_1p8>;
-
-			qcom,micbias1-microvolt = <1800000>;
-			qcom,micbias2-microvolt = <1800000>;
-			qcom,micbias3-microvolt = <1800000>;
-			qcom,micbias4-microvolt = <1800000>;
-
-			qcom,hphl-jack-type-normally-closed;
-			qcom,ground-jack-type-normally-closed;
-			qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
-			qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
-			qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
-
-			#address-cells = <1>;
-			#size-cells = <1>;
-
-			wcdgpio: gpio-controller@42 {
-				compatible = "qcom,wcd9340-gpio";
-				gpio-controller;
-				#gpio-cells = <2>;
-				reg = <0x42 0x2>;
-			};
 		};
 	};
 };
