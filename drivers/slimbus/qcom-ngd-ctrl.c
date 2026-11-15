@@ -1373,7 +1373,7 @@ static int qcom_slim_ngd_qmi_new_server(struct qmi_handle *hdl,
 	qmi->svc_info.sq_node = service->node;
 	qmi->svc_info.sq_port = service->port;
 
-	complete(&ctrl->qmi_up);
+	complete_all(&ctrl->qmi_up);
 
 	return 0;
 }
@@ -1461,7 +1461,8 @@ static void qcom_slim_ngd_up_worker(struct work_struct *work)
 	}
 
 	mutex_lock(&ctrl->ssr_lock);
-	qcom_slim_ngd_enable(ctrl, true);
+	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
+		qcom_slim_ngd_enable(ctrl, true);
 	mutex_unlock(&ctrl->ssr_lock);
 }
 
