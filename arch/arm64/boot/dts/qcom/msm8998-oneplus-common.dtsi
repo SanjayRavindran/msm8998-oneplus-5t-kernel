@@ -499,7 +499,8 @@
 		#size-cells = <0>;
 
 		interrupt-parent = <&tlmm>;
-		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
+		interrupts = <125 IRQ_TYPE_LEVEL_LOW>;
+		wakeup-source;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&ts_int_active &ts_reset_active>;
@@ -513,6 +514,8 @@
 		rmi4-f01@1 {
 			reg = <0x01>;
 			syna,nosleep-mode = <1>;
+			syna,doze-interval-ms = <20>;
+			syna,wakeup-doze;
 		};
 
 		rmi4_f12: rmi4-f12@12 {
@@ -1636,4 +1639,23 @@
 		vio-supply = <&vreg_lvs1a_1p8>;
 		vaf-supply = <&vaf_imx376k_reg>;
 	};
+};
+
+/*
+ * Protect GCC hardware clocks not managed or disabled by the stock MSM8998 HLOS
+ * clock tree (including GCC_MSS_AT_CLK and CoreSight/QM/GPU clocks) so
+ * clk_disable_unused() does not gate active remoteproc/MSS paths.
+ */
+&gcc {
+	protected-clocks = <AGGRE2_SNOC_NORTH_AXI>,
+			   <SSC_XO>,
+			   <SSC_CNOC_AHBS_CLK>,
+			   <GCC_MSS_AT_CLK>,
+			   <GCC_AGGRE1_NOC_XO_CLK>,
+			   <GCC_IM_SLEEP>,
+			   <GCC_HMSS_AT_CLK>,
+			   <GCC_MMSS_QM_AHB_CLK>,
+			   <GCC_MMSS_QM_CORE_CLK>,
+			   <GCC_GPU_BIMC_GFX_SRC_CLK>,
+			   <GCC_GPU_SNOC_DVM_GFX_CLK>;
 };

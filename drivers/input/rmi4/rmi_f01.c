@@ -130,6 +130,7 @@ struct f01_data {
 
 	bool suspended;
 	bool old_nosleep;
+	bool wakeup_doze;
 
 	unsigned int num_of_irq_regs;
 };
@@ -402,6 +403,8 @@ static int rmi_f01_probe(struct rmi_function *fn)
 		return -ENOMEM;
 
 	f01->num_of_irq_regs = driver_data->num_of_irq_regs;
+	f01->wakeup_doze = of_property_read_bool(fn->dev.of_node,
+						 "syna,wakeup-doze");
 
 	/*
 	 * Set the configured bit and (optionally) other important stuff
@@ -639,7 +642,8 @@ static int rmi_f01_suspend(struct rmi_function *fn)
 
 	f01->device_control.ctrl0 &= ~RMI_F01_CTRL0_SLEEP_MODE_MASK;
 	if (device_may_wakeup(fn->rmi_dev->xport->dev))
-		f01->device_control.ctrl0 |= RMI_SLEEP_MODE_RESERVED1;
+		f01->device_control.ctrl0 |= f01->wakeup_doze ?
+			RMI_SLEEP_MODE_NORMAL : RMI_SLEEP_MODE_RESERVED1;
 	else
 		f01->device_control.ctrl0 |= RMI_SLEEP_MODE_SENSOR_SLEEP;
 

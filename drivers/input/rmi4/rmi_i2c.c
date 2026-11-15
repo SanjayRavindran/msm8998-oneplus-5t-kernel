@@ -40,6 +40,7 @@ struct rmi_i2c_xport {
 
 	struct regulator_bulk_data supplies[2];
 	u32 startup_delay;
+	bool supplies_disabled;
 };
 
 #define RMI_PAGE_SELECT_REGISTER 0xff
@@ -295,10 +296,15 @@ static int rmi_i2c_suspend(struct device *dev)
 
 	ret = rmi_driver_suspend(rmi_i2c->xport.rmi_dev, true);
 	if (ret)
-		dev_warn(dev, "Failed to resume device: %d\n", ret);
+		dev_warn(dev, "Failed to suspend device: %d\n", ret);
 
-	regulator_bulk_disable(ARRAY_SIZE(rmi_i2c->supplies),
-			       rmi_i2c->supplies);
+	if (!device_may_wakeup(dev)) {
+		regulator_bulk_disable(ARRAY_SIZE(rmi_i2c->supplies),
+				       rmi_i2c->supplies);
+		rmi_i2c->supplies_disabled = true;
+	} else {
+		rmi_i2c->supplies_disabled = false;
+	}
 
 	return ret;
 }
@@ -309,12 +315,15 @@ static int rmi_i2c_resume(struct device *dev)
 	struct rmi_i2c_xport *rmi_i2c = i2c_get_clientdata(client);
 	int ret;
 
-	ret = regulator_bulk_enable(ARRAY_SIZE(rmi_i2c->supplies),
-				    rmi_i2c->supplies);
-	if (ret)
-		return ret;
+	if (rmi_i2c->supplies_disabled) {
+		ret = regulator_bulk_enable(ARRAY_SIZE(rmi_i2c->supplies),
+					    rmi_i2c->supplies);
+		if (ret)
+			return ret;
 
-	msleep(rmi_i2c->startup_delay);
+		rmi_i2c->supplies_disabled = false;
+		msleep(rmi_i2c->startup_delay);
+	}
 
 	ret = rmi_driver_resume(rmi_i2c->xport.rmi_dev, true);
 	if (ret)

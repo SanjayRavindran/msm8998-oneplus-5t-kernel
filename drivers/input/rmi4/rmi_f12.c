@@ -25,6 +25,8 @@ enum rmi_f12_object_type {
 
 #define F12_DATA1_BYTES_PER_OBJ			8
 #define RMI_F12_QUERY_RESOLUTION		29
+#define RMI_F12_GESTURE_DTAP			0x03
+#define RMI_F12_CTRL20_LPWG_BIT			BIT(1)
 
 struct f12_data {
 	struct rmi_2d_sensor sensor;
@@ -40,6 +42,10 @@ struct f12_data {
 	/* F12 Data1 describes sensed objects */
 	const struct rmi_register_desc_item *data1;
 	u16 data1_offset;
+
+	/* F12 Data4 describes wakeup gesture events */
+	const struct rmi_register_desc_item *data4;
+	u16 data4_offset;
 
 	/* F12 Data5 describes finger ACM */
 	const struct rmi_register_desc_item *data5;
@@ -59,6 +65,8 @@ struct f12_data {
 
 	unsigned long *abs_mask;
 	unsigned long *rel_mask;
+
+	bool in_lpwg;
 };
 
 static int rmi_f12_read_sensor_tuning(struct f12_data *f12)
@@ -244,6 +252,19 @@ static irqreturn_t rmi_f12_attention(int irq, void *ctx)
 			dev_err(&fn->dev, "Failed to read object data. Code: %d.\n",
 				retval);
 			return IRQ_RETVAL(retval);
+		}
+	}
+
+	if (f12->in_lpwg && f12->data4 &&
+	    valid_bytes > f12->data4_offset) {
+		u8 gesture_type = sensor->data_pkt[f12->data4_offset];
+
+		if (gesture_type == RMI_F12_GESTURE_DTAP) {
+			input_report_key(sensor->input, KEY_WAKEUP, 1);
+			input_sync(sensor->input);
+			input_report_key(sensor->input, KEY_WAKEUP, 0);
+			input_sync(sensor->input);
+			return IRQ_HANDLED;
 		}
 	}
 
@@ -481,8 +502,11 @@ static int rmi_f12_probe(struct rmi_function *fn)
 		data_offset += item->reg_size;
 
 	item = rmi_get_register_desc_item(&f12->data_reg_desc, 4);
-	if (item && !drvdata->attn_data.data)
+	if (item && !drvdata->attn_data.data) {
+		f12->data4 = item;
+		f12->data4_offset = data_offset;
 		data_offset += item->reg_size;
+	}
 
 	item = rmi_get_register_desc_item(&f12->data_reg_desc, 5);
 	if (item) {
@@ -560,7 +584,77 @@ static int rmi_f12_probe(struct rmi_function *fn)
 	if (ret)
 		return ret;
 
+	if (device_can_wakeup(rmi_dev->xport->dev) && f12->data4)
+		input_set_capability(sensor->input, EV_KEY, KEY_WAKEUP);
+
 	return 0;
+}
+
+static int rmi_f12_set_lpwg(struct rmi_function *fn, bool enable)
+{
+	struct f12_data *f12 = dev_get_drvdata(&fn->dev);
+	const struct rmi_register_desc_item *item;
+	u16 offset;
+	u8 buf[3];
+	int ret;
+
+	item = rmi_get_register_desc_item(&f12->control_reg_desc, 20);
+	if (!item || item->reg_size < sizeof(buf))
+		return -ENODEV;
+
+	offset = rmi_register_desc_calc_reg_offset(&f12->control_reg_desc, 20);
+	ret = rmi_read_block(fn->rmi_dev, fn->fd.control_base_addr + offset,
+			     buf, sizeof(buf));
+	if (ret)
+		return ret;
+
+	if (enable)
+		buf[2] |= RMI_F12_CTRL20_LPWG_BIT;
+	else
+		buf[2] &= ~RMI_F12_CTRL20_LPWG_BIT;
+
+	return rmi_write_block(fn->rmi_dev, fn->fd.control_base_addr + offset,
+			       buf, sizeof(buf));
+}
+
+static int rmi_f12_suspend(struct rmi_function *fn)
+{
+	struct f12_data *f12 = dev_get_drvdata(&fn->dev);
+	int ret;
+
+	if (!device_may_wakeup(fn->rmi_dev->xport->dev) || !f12->data4)
+		return 0;
+
+	ret = rmi_f12_set_lpwg(fn, true);
+	if (ret) {
+		dev_warn(&fn->dev, "Failed to enable LPWG: %d\n", ret);
+		return ret;
+	}
+
+	f12->in_lpwg = true;
+	return 0;
+}
+
+static int rmi_f12_resume(struct rmi_function *fn)
+{
+	struct f12_data *f12 = dev_get_drvdata(&fn->dev);
+	struct rmi_device_platform_data *pdata;
+	int ret;
+
+	if (!f12->in_lpwg)
+		return 0;
+
+	pdata = rmi_get_platform_data(fn->rmi_dev);
+	if (pdata->irq > 0)
+		synchronize_irq(pdata->irq);
+
+	f12->in_lpwg = false;
+
+	ret = rmi_f12_set_lpwg(fn, false);
+	if (ret)
+		dev_warn(&fn->dev, "Failed to disable LPWG: %d\n", ret);
+
+	return ret;
 }
 
 struct rmi_function_handler rmi_f12_handler = {
@@ -571,4 +665,6 @@ struct rmi_function_handler rmi_f12_handler = {
 	.probe = rmi_f12_probe,
 	.config = rmi_f12_config,
 	.attention = rmi_f12_attention,
+	.suspend = rmi_f12_suspend,
+	.resume = rmi_f12_resume,
 };
