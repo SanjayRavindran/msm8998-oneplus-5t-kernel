@@ -4027,20 +4027,18 @@ static void wcd9335_teardown_irqs(struct wcd9335_codec *wcd)
 static void wcd9335_cdc_sido_ccl_enable(struct wcd9335_codec *wcd,
 					bool ccl_flag)
 {
-	struct snd_soc_component *comp = wcd->component;
-
 	if (ccl_flag) {
 		if (++wcd->sido_ccl_cnt == 1)
-			snd_soc_component_write(comp, WCD9335_SIDO_SIDO_CCL_10,
-					WCD9335_SIDO_SIDO_CCL_DEF_VALUE);
+			regmap_write(wcd->regmap, WCD9335_SIDO_SIDO_CCL_10,
+				     WCD9335_SIDO_SIDO_CCL_DEF_VALUE);
 	} else {
 		if (wcd->sido_ccl_cnt == 0) {
 			dev_err(wcd->dev, "sido_ccl already disabled\n");
 			return;
 		}
 		if (--wcd->sido_ccl_cnt == 0)
-			snd_soc_component_write(comp, WCD9335_SIDO_SIDO_CCL_10,
-				WCD9335_SIDO_SIDO_CCL_10_ICHARG_PWR_SEL_C320FF);
+			regmap_write(wcd->regmap, WCD9335_SIDO_SIDO_CCL_10,
+				     WCD9335_SIDO_SIDO_CCL_10_ICHARG_PWR_SEL_C320FF);
 	}
 }
 
@@ -4190,7 +4188,6 @@ err:
 static void wcd9335_codec_apply_sido_voltage(struct wcd9335_codec *wcd,
 					     enum wcd9335_sido_voltage req_mv)
 {
-	struct snd_soc_component *comp = wcd->component;
 	int vout_d_val;
 
 	if (req_mv == wcd->sido_voltage)
@@ -4199,17 +4196,17 @@ static void wcd9335_codec_apply_sido_voltage(struct wcd9335_codec *wcd,
 	/* compute the vout_d step value */
 	vout_d_val = WCD9335_CALCULATE_VOUT_D(req_mv) &
 			WCD9335_ANA_BUCK_VOUT_MASK;
-	snd_soc_component_write(comp, WCD9335_ANA_BUCK_VOUT_D, vout_d_val);
-	snd_soc_component_update_bits(comp, WCD9335_ANA_BUCK_CTL,
-				WCD9335_ANA_BUCK_CTL_RAMP_START_MASK,
-				WCD9335_ANA_BUCK_CTL_RAMP_START_ENABLE);
+	regmap_write(wcd->regmap, WCD9335_ANA_BUCK_VOUT_D, vout_d_val);
+	regmap_update_bits(wcd->regmap, WCD9335_ANA_BUCK_CTL,
+			   WCD9335_ANA_BUCK_CTL_RAMP_START_MASK,
+			   WCD9335_ANA_BUCK_CTL_RAMP_START_ENABLE);
 
 	/* 1 msec sleep required after SIDO Vout_D voltage change */
 	usleep_range(1000, 1100);
 	wcd->sido_voltage = req_mv;
-	snd_soc_component_update_bits(comp, WCD9335_ANA_BUCK_CTL,
-				WCD9335_ANA_BUCK_CTL_RAMP_START_MASK,
-				WCD9335_ANA_BUCK_CTL_RAMP_START_DISABLE);
+	regmap_update_bits(wcd->regmap, WCD9335_ANA_BUCK_CTL,
+			   WCD9335_ANA_BUCK_CTL_RAMP_START_MASK,
+			   WCD9335_ANA_BUCK_CTL_RAMP_START_DISABLE);
 }
 
 static int wcd9335_codec_update_sido_voltage(struct wcd9335_codec *wcd,
@@ -4810,6 +4807,9 @@ static int wcd9335_codec_probe(struct snd_soc_component *component)
 	ret = wcd9335_setup_irqs(wcd);
 	if (ret)
 		goto free_clsh_ctrl;
+
+	if (wcd->cpe)
+		wcd9335_cpe_request_fw(wcd->cpe);
 
 	return 0;
 

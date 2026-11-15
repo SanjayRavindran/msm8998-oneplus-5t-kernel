@@ -676,6 +676,7 @@ struct wcd9335_cpe;
 struct wcd9335_cpe *wcd9335_cpe_init(struct device *dev, struct regmap *regmap,
 				     int virq_outbox1, int virq_err,
 				     int (*mclk_ctrl)(struct device *, bool, u32 *));
+void wcd9335_cpe_request_fw(struct wcd9335_cpe *cpe);
 void wcd9335_cpe_deinit(struct wcd9335_cpe *cpe);
 struct wcd9335_cpe *wcd9335_dev_get_cpe(struct device *dev);
 #else
@@ -686,6 +687,7 @@ static inline struct wcd9335_cpe *wcd9335_cpe_init(struct device *dev,
 {
 	return NULL;
 }
+static inline void wcd9335_cpe_request_fw(struct wcd9335_cpe *cpe) { }
 static inline void wcd9335_cpe_deinit(struct wcd9335_cpe *cpe) { }
 static inline struct wcd9335_cpe *wcd9335_dev_get_cpe(struct device *dev)
 {

@@ -737,7 +737,6 @@ struct wcd9335_cpe *wcd9335_cpe_init(struct device *dev, struct regmap *regmap,
 				     int (*mclk_ctrl)(struct device *, bool, u32 *))
 {
 	struct wcd9335_cpe *cpe;
-	char mdt_name[48];
 	int ret;
 
 	cpe = devm_kzalloc(dev, sizeof(*cpe), GFP_KERNEL);
@@ -775,11 +774,19 @@ struct wcd9335_cpe *wcd9335_cpe_init(struct device *dev, struct regmap *regmap,
 	if (ret)
 		return ERR_PTR(ret);
 
-	snprintf(mdt_name, sizeof(mdt_name), "%s.mdt", cpe->fw_name);
-	request_firmware_nowait(THIS_MODULE, true, mdt_name, dev, GFP_KERNEL,
-				cpe, wcd9335_cpe_fw_cb);
-
 	return cpe;
+}
+
+void wcd9335_cpe_request_fw(struct wcd9335_cpe *cpe)
+{
+	char mdt_name[48];
+
+	if (!cpe || cpe->running)
+		return;
+
+	snprintf(mdt_name, sizeof(mdt_name), "%s.mdt", cpe->fw_name);
+	request_firmware_nowait(THIS_MODULE, true, mdt_name, cpe->dev,
+				GFP_KERNEL, cpe, wcd9335_cpe_fw_cb);
 }
 
 void wcd9335_cpe_deinit(struct wcd9335_cpe *cpe)
