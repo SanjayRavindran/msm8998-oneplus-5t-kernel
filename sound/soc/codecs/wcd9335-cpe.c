@@ -80,8 +80,6 @@ struct wcd9335_cpe {
 	struct completion outbox_compl;
 	bool running;
 	bool mclk_held;
-	bool burst_checked;
-	bool burst_ok;
 
 	char fw_name[32];
 	u32 mclk_rate;
@@ -135,6 +133,7 @@ static int wcd9335_cpe_enable_rco(struct wcd9335_cpe *cpe, bool enable)
 	unsigned int rco_val = 0;
 
 	if (!enable) {
+		regmap_update_bits(rm, WCD9335_ANA_CLK_TOP, 0x08, 0x00);
 		regmap_update_bits(rm, WCD9335_ANA_RCO, 0x40, 0x00);
 		return 0;
 	}
@@ -152,6 +151,8 @@ static int wcd9335_cpe_enable_rco(struct wcd9335_cpe *cpe, bool enable)
 	if (rco_val & 0x02)
 		dev_warn(cpe->dev, "WCD9335 CPE RCO calibration incomplete (0x%02x)\n",
 			 rco_val);
+
+	regmap_update_bits(rm, WCD9335_ANA_CLK_TOP, 0x08, 0x08);
 	return 0;
 }
 
@@ -208,7 +209,20 @@ static int wcd9335_cpe_set_fll_clk(struct wcd9335_cpe *cpe, bool enable)
 	ret |= regmap_update_bits(rm, WCD9335_CPE_FLL_TEST_CTL_0, 0x80, 0x80);
 	ret |= regmap_update_bits(rm, WCD9335_CPE_FLL_FLL_MODE, 0x60, 0x00);
 	ret |= regmap_write(rm, WCD9335_CPE_FLL_FLL_MODE, 0x80);
-	usleep_range(1000, 1500);
+	if (!ret) {
+		unsigned int fll_st3 = 0;
+		int tries;
+
+		for (tries = 0; tries < 50; tries++) {
+			usleep_range(1000, 1200);
+			if (!regmap_read(rm, WCD9335_CPE_FLL_STATUS_3, &fll_st3) &&
+			    (fll_st3 & 0x01))
+				break;
+		}
+		if (!(fll_st3 & 0x01))
+			dev_dbg(cpe->dev, "CPE FLL status3=0x%02x after lock wait\n",
+				 fll_st3);
+	}
 	return ret;
 }
 
@@ -217,7 +231,7 @@ static int wcd9335_cpe_reset_hw(struct wcd9335_cpe *cpe)
 	struct regmap *rm = cpe->regmap;
 	int ret = 0;
 
-	ret |= regmap_update_bits(rm, WCD9335_CPE_SS_CPAR_CFG, 0x01, 0x00);
+	ret |= regmap_write(rm, WCD9335_CPE_SS_CPAR_CFG, 0x00);
 	ret |= regmap_write(rm, WCD9335_CODEC_RPM_PWR_CPE_IRAM_SHUTDOWN, 0x00);
 	ret |= regmap_write(rm, WCD9335_CODEC_RPM_PWR_CPE_DRAM1_SHUTDOWN, 0x00);
 	ret |= regmap_write(rm, WCD9335_CODEC_RPM_PWR_CPE_DRAM0_SHUTDOWN_1, 0x00);
@@ -283,46 +297,12 @@ static int wcd9335_cpe_write_bytes(struct wcd9335_cpe *cpe, const u8 *data, size
 	return 0;
 }
 
-static int wcd9335_cpe_probe_burst(struct wcd9335_cpe *cpe, u8 mem_type,
-				   u32 offset, const u8 *sample, size_t len)
-{
-	u8 verify[WCD9335_CPE_CHUNK_SIZE];
-	int ret;
-
-	if (len > WCD9335_CPE_CHUNK_SIZE)
-		len = WCD9335_CPE_CHUNK_SIZE;
-
-	ret = wcd9335_cpe_set_mem_ptr(cpe, offset,
-				      WCD9335_CPE_MEM_CTRL_AUTOINC | mem_type);
-	if (ret)
-		return ret;
-
-	ret = regmap_raw_write(cpe->regmap, WCD9335_CPE_SS_MEM_BANK_0, sample, len);
-	regmap_write(cpe->regmap, WCD9335_CPE_SS_MEM_CTRL, 0);
-	if (!ret) {
-		ret = wcd9335_cpe_read_ram(cpe, mem_type, offset, verify, len);
-		if (!ret && !memcmp(sample, verify, len)) {
-			cpe->burst_checked = true;
-			cpe->burst_ok = true;
-			dev_info(cpe->dev, "WCD9335 CPE SRAM burst transfer verified (%zuB)\n",
-				 len);
-			return 0;
-		}
-	}
-
-	cpe->burst_checked = true;
-	cpe->burst_ok = false;
-	dev_info(cpe->dev, "WCD9335 CPE using single-port MEM_BANK_0 writes\n");
-	return 0;
-}
-
 static int wcd9335_cpe_write_segment(struct wcd9335_cpe *cpe, u32 paddr, u32 flags,
 				     const u8 *data, size_t size)
 {
 	struct regmap *rm = cpe->regmap;
 	u8 mem_type, ctrl;
 	u32 base, max_sz, offset;
-	size_t pos = 0;
 	int ret;
 
 	if (flags & PF_X) {
@@ -346,31 +326,12 @@ static int wcd9335_cpe_write_segment(struct wcd9335_cpe *cpe, u32 paddr, u32 fla
 
 	offset = paddr - base;
 
-	if (!cpe->burst_checked && size >= 4) {
-		ret = wcd9335_cpe_probe_burst(cpe, mem_type, offset, data,
-					      min_t(size_t, size, WCD9335_CPE_CHUNK_SIZE));
-		if (ret)
-			return ret;
-	}
-
 	ctrl = WCD9335_CPE_MEM_CTRL_AUTOINC | mem_type;
 	ret = wcd9335_cpe_set_mem_ptr(cpe, offset, ctrl);
 	if (ret)
 		return ret;
 
-	if (cpe->burst_ok) {
-		while (pos < size) {
-			size_t chunk = min_t(size_t, WCD9335_CPE_CHUNK_SIZE, size - pos);
-
-			ret = regmap_raw_write(rm, WCD9335_CPE_SS_MEM_BANK_0,
-					       data + pos, chunk);
-			if (ret)
-				break;
-			pos += chunk;
-		}
-	} else {
-		ret = wcd9335_cpe_write_bytes(cpe, data, size);
-	}
+	ret = wcd9335_cpe_write_bytes(cpe, data, size);
 
 	regmap_write(rm, WCD9335_CPE_SS_MEM_CTRL, 0);
 	if (!ret && size >= 4) {
@@ -380,9 +341,22 @@ static int wcd9335_cpe_write_segment(struct wcd9335_cpe *cpe, u32 paddr, u32 fla
 		if (!wcd9335_cpe_read_ram(cpe, mem_type, offset, verify, vlen) &&
 		    memcmp(data, verify, vlen) != 0) {
 			dev_err(cpe->dev,
-				"CPE SRAM verify mismatch @ 0x%x (type=%u): wrote %4phN read %4phN\n",
+				"CPE SRAM head verify mismatch @ 0x%x (type=%u): wrote %4phN read %4phN\n",
 				paddr, mem_type, data, verify);
 			return -EIO;
+		}
+		if (size > vlen) {
+			size_t tail_off = size - vlen;
+
+			if (!wcd9335_cpe_read_ram(cpe, mem_type, offset + tail_off,
+						  verify, vlen) &&
+			    memcmp(data + tail_off, verify, vlen) != 0) {
+				dev_err(cpe->dev,
+					"CPE SRAM tail verify mismatch @ 0x%zx (type=%u): wrote %4phN read %4phN\n",
+					paddr + tail_off, mem_type,
+					data + tail_off, verify);
+				return -EIO;
+			}
 		}
 	}
 	return ret;
@@ -394,12 +368,12 @@ static int wcd9335_cpe_wait_outbox(struct wcd9335_cpe *cpe, u8 *outbox)
 	unsigned int irq_st = 0;
 	int i;
 
-	rem = wait_for_completion_timeout(&cpe->outbox_compl, msecs_to_jiffies(600));
+	rem = wait_for_completion_timeout(&cpe->outbox_compl, msecs_to_jiffies(1500));
 	if (rem)
 		return wcd9335_cpe_read_outbox(cpe, outbox);
 
 	/* Fallback poll on INTR_PIN1_STATUS3 bit 5 */
-	for (i = 0; i < 40; i++) {
+	for (i = 0; i < 100; i++) {
 		if (!regmap_read(cpe->regmap, WCD9335_INTR_PIN1_STATUS3, &irq_st) &&
 		    (irq_st & BIT(5))) {
 			regmap_write(cpe->regmap, WCD9335_INTR_PIN1_CLEAR3, BIT(5));
@@ -479,8 +453,31 @@ static int wcd9335_cpe_load_segments(struct wcd9335_cpe *cpe,
 		if ((exec_pass && !is_exec) || (!exec_pass && !is_rw))
 			continue;
 
-		if (ph->p_filesz == 0 || ph->p_memsz == 0)
+		if (ph->p_memsz == 0)
 			continue;
+
+		if (ph->p_filesz == 0) {
+			if (!exec_pass && ph->p_paddr >= WCD9335_CPE_DRAM_BASE &&
+			    (ph->p_paddr - WCD9335_CPE_DRAM_BASE) + ph->p_memsz <=
+			    WCD9335_CPE_DRAM_SIZE) {
+				static const u8 zero_chunk[WCD9335_CPE_CHUNK_SIZE] = { 0 };
+				u32 off = ph->p_paddr - WCD9335_CPE_DRAM_BASE;
+				u32 rem = ph->p_memsz;
+
+				ret = wcd9335_cpe_set_mem_ptr(cpe, off,
+					WCD9335_CPE_MEM_CTRL_AUTOINC | WCD9335_CPE_MEM_DRAM);
+				while (!ret && rem > 0) {
+					u32 n = min_t(u32, rem, sizeof(zero_chunk));
+
+					ret = wcd9335_cpe_write_bytes(cpe, zero_chunk, n);
+					rem -= n;
+				}
+				regmap_write(cpe->regmap, WCD9335_CPE_SS_MEM_CTRL, 0);
+				if (ret)
+					return ret;
+			}
+			continue;
+		}
 
 		snprintf(seg_name, sizeof(seg_name), "%s.b%02d", cpe->fw_name, i);
 		ret = request_firmware(&seg_fw, seg_name, cpe->dev);
@@ -581,17 +578,44 @@ static int wcd9335_cpe_boot_from_mdt(struct wcd9335_cpe *cpe, const struct firmw
 
 	ret = wcd9335_cpe_wait_outbox(cpe, outbox);
 	if (ret) {
-		unsigned int rco = 0, clk_top = 0, fll0 = 0, fll1 = 0, err_st = 0;
+		unsigned int rco = 0, clk_top = 0, err_st = 0;
+		unsigned int fll[4] = { 0 }, pin1_st[4] = { 0 }, pin1_msk[4] = { 0 };
+		unsigned int cpar_ctl = 0, cpar_cfg = 0, ss_cfg = 0, intr_cfg = 0;
+		unsigned int vout_d = 0, buck_ctl = 0, mclk_cfg = 0, clk_gate = 0;
+		u8 raw_outbox[WCD9335_CPE_MBOX_SIZE] = { 0 };
+		int j;
 
 		regmap_read(cpe->regmap, WCD9335_CPE_SS_STATUS, &ss_status);
+		regmap_read(cpe->regmap, WCD9335_CPE_SS_CPAR_CTL, &cpar_ctl);
+		regmap_read(cpe->regmap, WCD9335_CPE_SS_CPAR_CFG, &cpar_cfg);
+		regmap_read(cpe->regmap, WCD9335_CPE_SS_CFG, &ss_cfg);
 		regmap_read(cpe->regmap, WCD9335_ANA_RCO, &rco);
 		regmap_read(cpe->regmap, WCD9335_ANA_CLK_TOP, &clk_top);
-		regmap_read(cpe->regmap, WCD9335_CPE_FLL_STATUS_0, &fll0);
-		regmap_read(cpe->regmap, WCD9335_CPE_FLL_STATUS_1, &fll1);
+		regmap_read(cpe->regmap, WCD9335_ANA_BUCK_VOUT_D, &vout_d);
+		regmap_read(cpe->regmap, WCD9335_ANA_BUCK_CTL, &buck_ctl);
+		regmap_read(cpe->regmap, WCD9335_CODEC_RPM_CLK_GATE, &clk_gate);
+		regmap_read(cpe->regmap, WCD9335_CODEC_RPM_CLK_MCLK_CFG, &mclk_cfg);
+		regmap_read(cpe->regmap, WCD9335_INTR_CFG, &intr_cfg);
+		for (j = 0; j < 4; j++) {
+			regmap_read(cpe->regmap, WCD9335_CPE_FLL_STATUS_0 + j, &fll[j]);
+			regmap_read(cpe->regmap, WCD9335_INTR_PIN1_STATUS0 + j, &pin1_st[j]);
+			regmap_read(cpe->regmap, WCD9335_INTR_PIN1_MASK0 + j, &pin1_msk[j]);
+		}
 		regmap_read(cpe->regmap, WCD9335_CPE_SS_SS_ERROR_INT_STATUS, &err_st);
+		for (j = 0; j < WCD9335_CPE_MBOX_SIZE; j++) {
+			unsigned int v = 0;
+
+			regmap_read(cpe->regmap, WCD9335_CPE_SS_OUTBOX1_0 + j, &v);
+			raw_outbox[j] = v & 0xff;
+		}
 		dev_err(cpe->dev,
-			"Timed out waiting for CPE boot event (ss=0x%02x rco=0x%02x top=0x%02x fll=0x%02x/0x%02x err=0x%02x)\n",
-			ss_status, rco, clk_top, fll0, fll1, err_st);
+			"CPE boot timeout: ss=0x%02x cpar=0x%02x/0x%02x cfg=0x%02x rco=0x%02x top=0x%02x fll=%02x.%02x.%02x.%02x buck=%02x/%02x clk=%02x/%02x err=0x%02x intr=%02x st=%02x.%02x.%02x.%02x msk=%02x.%02x.%02x.%02x ob=%16phN\n",
+			ss_status, cpar_ctl, cpar_cfg, ss_cfg, rco, clk_top,
+			fll[0], fll[1], fll[2], fll[3], vout_d, buck_ctl,
+			clk_gate, mclk_cfg, err_st, intr_cfg,
+			pin1_st[0], pin1_st[1], pin1_st[2], pin1_st[3],
+			pin1_msk[0], pin1_msk[1], pin1_msk[2], pin1_msk[3],
+			raw_outbox);
 		goto err_stop;
 	}
 
@@ -691,8 +715,8 @@ static ssize_t cpe_load_store(struct device *dev, struct device_attribute *attr,
 
 	mutex_lock(&cpe->lock);
 	if (enable)
-		ret = wcd9335_cpe_start_sync(cpe);
-	else
+		ret = cpe->running ? 0 : wcd9335_cpe_start_sync(cpe);
+	else if (cpe->running)
 		wcd9335_cpe_stop_locked(cpe);
 	mutex_unlock(&cpe->lock);
 
