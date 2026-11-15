@@ -255,6 +255,26 @@
 		regulator-boot-on;
 	};
 
+	vaf_imx398_reg: regulator-vaf-imx398 {
+		compatible = "regulator-fixed";
+		regulator-name = "vaf_imx398";
+		regulator-min-microvolt = <2850000>;
+		regulator-max-microvolt = <2850000>;
+		gpio = <&tlmm 6 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		vin-supply = <&vreg_l22a_2p85>;
+	};
+
+	vaf_imx376k_reg: regulator-vaf-imx376k {
+		compatible = "regulator-fixed";
+		regulator-name = "vaf_imx376k";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&tlmm 77 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		vin-supply = <&vreg_bob>;
+	};
+
 	thermal-zones {
 		xo-thermal {
 			thermal-sensors = <&pm8998_adc_tm 1>;
@@ -1492,12 +1512,13 @@
 		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
 		vdig-gpios = <&tlmm 7 GPIO_ACTIVE_HIGH>;
 		vana-gpios = <&tlmm 27 GPIO_ACTIVE_HIGH>;
-		vaf-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
 
 		vio-supply = <&vreg_lvs1a_1p8>;
 		vana-supply = <&vreg_bob>;
 		vdig-supply = <&vreg_s3a_1p35>;
-		vaf-supply = <&vreg_l22a_2p85>;
+		vaf-supply = <&vaf_imx398_reg>;
+
+		lens-focus = <&imx398_vcm>;
 
 		orientation = <1>;
 		rotation = <90>;
@@ -1541,6 +1562,29 @@
 			};
 		};
 	};
+
+	imx398_eeprom: eeprom@50 {
+		compatible = "atmel,24c64";
+		reg = <0x50>;
+		pagesize = <32>;
+		vcc-supply = <&vreg_lvs1a_1p8>;
+		read-only;
+	};
+
+	imx371_eeprom: eeprom@51 {
+		compatible = "atmel,24c64";
+		reg = <0x51>;
+		pagesize = <32>;
+		vcc-supply = <&vreg_lvs1a_1p8>;
+		read-only;
+	};
+
+	imx398_vcm: lens@72 {
+		compatible = "onnn,lc898217xc";
+		reg = <0x72>;
+		vio-supply = <&vreg_lvs1a_1p8>;
+		vaf-supply = <&vaf_imx398_reg>;
+	};
 };
 
 &cci_i2c1 {
@@ -1558,12 +1602,13 @@
 		reset-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
 		vdig-gpios = <&tlmm 8 GPIO_ACTIVE_HIGH>;
 		vana-gpios = <&tlmm 23 GPIO_ACTIVE_HIGH>;
-		vaf-gpios = <&tlmm 77 GPIO_ACTIVE_HIGH>;
 
 		vio-supply = <&vreg_lvs1a_1p8>;
 		vana-supply = <&vreg_bob>;
 		vdig-supply = <&vreg_s3a_1p35>;
-		vaf-supply = <&vreg_bob>;
+		vaf-supply = <&vaf_imx376k_reg>;
+
+		lens-focus = <&imx376k_vcm>;
 
 		orientation = <1>;
 		rotation = <90>;
@@ -1575,5 +1620,20 @@
 				remote-endpoint = <&csiphy1_ep>;
 			};
 		};
+	};
+
+	imx376k_eeprom: eeprom@51 {
+		compatible = "atmel,24c64";
+		reg = <0x51>;
+		pagesize = <32>;
+		vcc-supply = <&vreg_lvs1a_1p8>;
+		read-only;
+	};
+
+	imx376k_vcm: lens@74 {
+		compatible = "onnn,lc898217xc";
+		reg = <0x74>;
+		vio-supply = <&vreg_lvs1a_1p8>;
+		vaf-supply = <&vaf_imx376k_reg>;
 	};
 };

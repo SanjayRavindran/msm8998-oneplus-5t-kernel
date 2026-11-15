@@ -1726,6 +1726,15 @@ config VIDEO_MAX96717
 	  To compile this driver as a module, choose M here: the
 	  module will be called max96717.
 
+config VIDEO_LC898217XC_OP5T
+	tristate "Clean-room ON Semiconductor LC898217XC lens voice coil support (OnePlus 5T)"
+	depends on I2C && VIDEO_DEV
+	select MEDIA_CONTROLLER
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	  This is a clean-room V4L2 subdev driver for the LC898217XC
+	  closed-loop VCM lens actuator on the OnePlus 5T (dumpling).
+
 endmenu
 
 endif # VIDEO_DEV
