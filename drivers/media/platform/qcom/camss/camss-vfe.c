@@ -340,6 +340,7 @@ static u32 vfe_src_pad_code(struct vfe_line *line, u32 sink_code,
 		}
 		break;
 	case CAMSS_660:
+	case CAMSS_8998:
 	case CAMSS_2290:
 	case CAMSS_7280:
 	case CAMSS_8x96:
@@ -877,8 +878,14 @@ void vfe_pm_domain_off(struct vfe_device *vfe)
 	if (!vfe->genpd)
 		return;
 
-	device_link_del(vfe->genpd_link);
-	vfe->genpd_link = NULL;
+	mutex_lock(&vfe->genpd_lock);
+	if (vfe->genpd_count > 0 && --vfe->genpd_count == 0) {
+		if (vfe->genpd_link) {
+			device_link_del(vfe->genpd_link);
+			vfe->genpd_link = NULL;
+		}
+	}
+	mutex_unlock(&vfe->genpd_lock);
 }
 
 /*
@@ -888,18 +895,26 @@ void vfe_pm_domain_off(struct vfe_device *vfe)
 int vfe_pm_domain_on(struct vfe_device *vfe)
 {
 	struct camss *camss = vfe->camss;
+	int ret = 0;
 
 	if (!vfe->genpd)
 		return 0;
 
-	vfe->genpd_link = device_link_add(camss->dev, vfe->genpd,
-					  DL_FLAG_STATELESS |
-					  DL_FLAG_PM_RUNTIME |
-					  DL_FLAG_RPM_ACTIVE);
-	if (!vfe->genpd_link)
-		return -EINVAL;
-
-	return 0;
+	mutex_lock(&vfe->genpd_lock);
+	if (vfe->genpd_count == 0) {
+		vfe->genpd_link = device_link_add(camss->dev, vfe->genpd,
+						  DL_FLAG_STATELESS |
+						  DL_FLAG_PM_RUNTIME |
+						  DL_FLAG_RPM_ACTIVE);
+		if (!vfe->genpd_link) {
+			ret = -EINVAL;
+			goto out;
+		}
+	}
+	vfe->genpd_count++;
+out:
+	mutex_unlock(&vfe->genpd_lock);
+	return ret;
 }
 
 static int vfe_match_clock_names(struct vfe_device *vfe,
@@ -1789,6 +1804,7 @@ int msm_vfe_subdev_init(struct camss *camss, struct vfe_device *vfe,
 		return -EINVAL;
 
 	vfe->res = &res->vfe;
+	mutex_init(&vfe->genpd_lock);
 	vfe->res->hw_ops->subdev_init(dev, vfe);
 
 	/* Power domain */

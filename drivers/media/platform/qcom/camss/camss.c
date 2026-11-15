@@ -33,6 +33,7 @@
 #define CAMSS_CLOCK_MARGIN_DENOMINATOR 100
 
 static const struct parent_dev_ops vfe_parent_dev_ops;
+static const struct parent_dev_ops vfe_optional_parent_dev_ops;
 
 static const struct camss_subdev_resources csiphy_res_8x16[] = {
 	/* CSIPHY0 */
@@ -646,6 +647,242 @@ static const struct resources_icc icc_res_2290[] = {
 		.name = "sf_mnoc",
 		.icc_bw_tbl.avg = 2097152,
 		.icc_bw_tbl.peak = 3000000,
+	},
+};
+
+
+static const struct resources_icc icc_res_8998[] = {
+	{
+		.name = "ahb",
+		.icc_bw_tbl.avg = 38400,
+		.icc_bw_tbl.peak = 76800,
+	},
+	{
+		.name = "vfe-mem",
+		.icc_bw_tbl.avg = 1000000,
+		.icc_bw_tbl.peak = 2000000,
+	},
+};
+
+static const struct camss_subdev_resources csiphy_res_8998[] = {
+	/* CSIPHY0 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "ahb", "csiphy0",
+			   "csiphy0_timer", "csi0", "cphy_csid0" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 164571429, 256000000, 274290000,
+				  300000000, 384000000 },
+				{ 200000000, 269333333 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csiphy0" },
+		.interrupt = { "csiphy0" },
+		.csiphy = {
+			.id = 0,
+			.hw_ops = &csiphy_ops_3ph_1_0,
+			.formats = &csiphy_formats_8x96
+		}
+	},
+	/* CSIPHY1 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "ahb", "csiphy1",
+			   "csiphy1_timer", "csi1", "cphy_csid1" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 164571429, 256000000, 274290000,
+				  300000000, 384000000 },
+				{ 200000000, 269333333 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csiphy1" },
+		.interrupt = { "csiphy1" },
+		.csiphy = {
+			.id = 1,
+			.hw_ops = &csiphy_ops_3ph_1_0,
+			.formats = &csiphy_formats_8x96
+		}
+	},
+	/* CSIPHY2 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "ahb", "csiphy2",
+			   "csiphy2_timer", "csi2", "cphy_csid2" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 164571429, 256000000, 274290000,
+				  300000000, 384000000 },
+				{ 200000000, 269333333 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csiphy2" },
+		.interrupt = { "csiphy2" },
+		.csiphy = {
+			.id = 2,
+			.hw_ops = &csiphy_ops_3ph_1_0,
+			.formats = &csiphy_formats_8x96
+		}
+	},
+};
+
+static const struct camss_subdev_resources csid_res_8998[] = {
+	/* CSID0 */
+	{
+		.regulators = { "vdda", "vdd_sec" },
+		.clock = { "top_ahb", "ispif_ahb", "csi0_ahb", "ahb",
+			   "csi0", "csi0_pix", "csi0_rdi", "cphy_csid0" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 164571429, 256000000, 274290000,
+				  300000000, 384000000, 576000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid0" },
+		.interrupt = { "csid0" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	},
+	/* CSID1 */
+	{
+		.regulators = { "vdda", "vdd_sec" },
+		.clock = { "top_ahb", "ispif_ahb", "csi1_ahb", "ahb",
+			   "csi1", "csi1_pix", "csi1_rdi", "cphy_csid1" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 164571429, 256000000, 274290000,
+				  300000000, 384000000, 576000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid1" },
+		.interrupt = { "csid1" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	},
+	/* CSID2 */
+	{
+		.regulators = { "vdda", "vdd_sec" },
+		.clock = { "top_ahb", "ispif_ahb", "csi2_ahb", "ahb",
+			   "csi2", "csi2_pix", "csi2_rdi", "cphy_csid2" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 164571429, 256000000, 274290000,
+				  300000000, 384000000, 576000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid2" },
+		.interrupt = { "csid2" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_optional_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	},
+	/* CSID3 */
+	{
+		.regulators = { "vdda", "vdd_sec" },
+		.clock = { "top_ahb", "ispif_ahb", "csi3_ahb", "ahb",
+			   "csi3", "csi3_pix", "csi3_rdi", "cphy_csid3" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 164571429, 256000000, 274290000,
+				  300000000, 384000000, 576000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid3" },
+		.interrupt = { "csid3" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_optional_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	},
+};
+
+static const struct camss_subdev_resources ispif_res_8998 = {
+	/* ISPIF */
+	.clock = { "top_ahb", "ahb", "ispif_ahb",
+		   "csi0", "csi0_pix", "csi0_rdi",
+		   "csi1", "csi1_pix", "csi1_rdi",
+		   "csi2", "csi2_pix", "csi2_rdi",
+		   "csi3", "csi3_pix", "csi3_rdi" },
+	.clock_for_reset = { "vfe0", "csi_vfe0", "vfe1", "csi_vfe1" },
+	.reg = { "ispif", "csi_clk_mux" },
+	.interrupt = { "ispif" },
+};
+
+static const struct camss_subdev_resources vfe_res_8998[] = {
+	/* VFE0 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ahb", "vfe0", "csi_vfe0",
+			   "vfe_ahb", "vfe0_ahb", "vfe_axi", "vfe0_stream" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 200000000, 300000000, 320000000, 384000000,
+				  404000000, 480000000, 576000000, 600000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "vfe0" },
+		.interrupt = { "vfe0" },
+		.vfe = {
+			.line_num = 3,
+			.has_pd = true,
+			.pd_name = "vfe0",
+			.hw_ops = &vfe_ops_4_8,
+			.formats_rdi = &vfe_formats_rdi_8x96,
+			.formats_pix = &vfe_formats_pix_8x96
+		}
+	},
+	/* VFE1 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ahb", "vfe1", "csi_vfe1",
+			   "vfe_ahb", "vfe1_ahb", "vfe_axi", "vfe1_stream" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 200000000, 300000000, 320000000, 384000000,
+				  404000000, 480000000, 576000000, 600000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "vfe1" },
+		.interrupt = { "vfe1" },
+		.vfe = {
+			.line_num = 3,
+			.has_pd = true,
+			.pd_name = "vfe1",
+			.hw_ops = &vfe_ops_4_8,
+			.formats_rdi = &vfe_formats_rdi_8x96,
+			.formats_pix = &vfe_formats_pix_8x96
+		}
 	},
 };
 
@@ -3561,8 +3798,22 @@ static void __iomem
 	return NULL;
 }
 
+static int vfe_optional_parent_dev_ops_get(struct camss *camss, int id)
+{
+	if (id < camss->res->vfe_num)
+		return vfe_get(&camss->vfe[id]);
+
+	return 0;
+}
+
 static const struct parent_dev_ops vfe_parent_dev_ops = {
 	.get = vfe_parent_dev_ops_get,
+	.put = vfe_parent_dev_ops_put,
+	.get_base_address = vfe_parent_dev_ops_get_base_address
+};
+
+static const struct parent_dev_ops vfe_optional_parent_dev_ops = {
+	.get = vfe_optional_parent_dev_ops_get,
 	.put = vfe_parent_dev_ops_put,
 	.get_base_address = vfe_parent_dev_ops_get_base_address
 };
@@ -4170,9 +4421,7 @@ static int camss_probe(struct platform_device *pdev)
 	if (!camss->csid)
 		return -ENOMEM;
 
-	if (camss->res->version == CAMSS_8x16 ||
-	    camss->res->version == CAMSS_8x53 ||
-	    camss->res->version == CAMSS_8x96) {
+	if (camss->res->ispif_res) {
 		camss->ispif = devm_kcalloc(dev, 1, sizeof(*camss->ispif), GFP_KERNEL);
 		if (!camss->ispif)
 			return -ENOMEM;
@@ -4313,6 +4562,21 @@ static const struct camss_resources msm8953_resources = {
 	.csiphy_num = ARRAY_SIZE(csiphy_res_8x96),
 	.csid_num = ARRAY_SIZE(csid_res_8x53),
 	.vfe_num = ARRAY_SIZE(vfe_res_8x53),
+};
+
+
+static const struct camss_resources msm8998_resources = {
+	.version = CAMSS_8998,
+	.pd_name = "top",
+	.csiphy_res = csiphy_res_8998,
+	.csid_res = csid_res_8998,
+	.ispif_res = &ispif_res_8998,
+	.vfe_res = vfe_res_8998,
+	.icc_res = icc_res_8998,
+	.icc_path_num = ARRAY_SIZE(icc_res_8998),
+	.csiphy_num = ARRAY_SIZE(csiphy_res_8998),
+	.csid_num = ARRAY_SIZE(csid_res_8998),
+	.vfe_num = ARRAY_SIZE(vfe_res_8998),
 };
 
 static const struct camss_resources msm8996_resources = {
@@ -4470,6 +4734,7 @@ static const struct of_device_id camss_dt_match[] = {
 	{ .compatible = "qcom,msm8916-camss", .data = &msm8916_resources },
 	{ .compatible = "qcom,msm8953-camss", .data = &msm8953_resources },
 	{ .compatible = "qcom,msm8996-camss", .data = &msm8996_resources },
+	{ .compatible = "qcom,msm8998-camss", .data = &msm8998_resources },
 	{ .compatible = "qcom,qcm2290-camss", .data = &qcm2290_resources },
 	{ .compatible = "qcom,qcs8300-camss", .data = &qcs8300_resources },
 	{ .compatible = "qcom,sa8775p-camss", .data = &sa8775p_resources },

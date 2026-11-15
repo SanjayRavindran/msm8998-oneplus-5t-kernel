@@ -247,6 +247,14 @@ config VIDEO_IMX335
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx335.
 
+config VIDEO_SONY_IMX_OP5T
+	tristate "Sony IMX398/IMX376K/IMX371 OnePlus 5T sensor support"
+	depends on GPIOLIB && I2C && PM
+	select V4L2_CCI_I2C
+	help
+	  Clean-room Video4Linux2 sensor driver for Sony IMX398, IMX376K,
+	  and IMX371 camera modules on Qualcomm MSM8998 / OnePlus 5T.
+
 config VIDEO_IMX355
 	tristate "Sony IMX355 sensor support"
 	help

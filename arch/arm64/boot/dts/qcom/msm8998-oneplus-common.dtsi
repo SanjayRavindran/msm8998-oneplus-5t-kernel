@@ -1240,6 +1240,27 @@
 		bias-disable;
 		output-low;
 	};
+
+	cam_rear_default: cam-rear-default-state {
+		pins = "gpio6", "gpio7", "gpio27", "gpio30";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_rear_aux_default: cam-rear-aux-default-state {
+		pins = "gpio8", "gpio9", "gpio23", "gpio77";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_front_default: cam-front-default-state {
+		pins = "gpio28", "gpio78", "gpio85";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
 };
 
 &ufshc {
@@ -1414,6 +1435,145 @@
 			vdd-tx-supply = <&vreg_s4a_1p8>;
 			vdd-rx-supply = <&vreg_s4a_1p8>;
 			vdd-io-supply = <&vreg_s4a_1p8>;
+		};
+	};
+};
+
+&camss {
+	status = "okay";
+
+	vdda-supply = <&vreg_l2a_1p2>;
+	vdd_sec-supply = <&vreg_l1a_0p875>;
+
+	ports {
+		port@0 {
+			reg = <0>;
+			csiphy0_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&imx398_ep>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			csiphy1_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&imx376k_ep>;
+			};
+		};
+
+		port@2 {
+			reg = <2>;
+			csiphy2_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&imx371_ep>;
+			};
+		};
+	};
+};
+
+&cci {
+	status = "okay";
+	vio-supply = <&vreg_lvs1a_1p8>;
+};
+
+&cci_i2c0 {
+	imx398: camera@1a {
+		compatible = "sony,imx398";
+		reg = <0x1a>;
+
+		assigned-clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clock-rates = <24000000>;
+		clocks = <&mmcc CAMSS_MCLK0_CLK>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_mclk0_default &cam_rear_default>;
+
+		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+		vdig-gpios = <&tlmm 7 GPIO_ACTIVE_HIGH>;
+		vana-gpios = <&tlmm 27 GPIO_ACTIVE_HIGH>;
+		vaf-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
+
+		vio-supply = <&vreg_lvs1a_1p8>;
+		vana-supply = <&vreg_bob>;
+		vdig-supply = <&vreg_s3a_1p35>;
+		vaf-supply = <&vreg_l22a_2p85>;
+
+		orientation = <1>;
+		rotation = <90>;
+
+		port {
+			imx398_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <750000000 666000000 558000000 564000000 525000000>;
+				remote-endpoint = <&csiphy0_ep>;
+			};
+		};
+	};
+
+	imx371: camera@10 {
+		compatible = "sony,imx371";
+		reg = <0x10>;
+
+		assigned-clocks = <&mmcc CAMSS_MCLK1_CLK>;
+		assigned-clock-rates = <24000000>;
+		clocks = <&mmcc CAMSS_MCLK1_CLK>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_mclk1_default &cam_front_default>;
+
+		reset-gpios = <&tlmm 28 GPIO_ACTIVE_LOW>;
+		vdig-gpios = <&tlmm 78 GPIO_ACTIVE_HIGH>;
+		vana-gpios = <&tlmm 85 GPIO_ACTIVE_HIGH>;
+
+		vio-supply = <&vreg_lvs1a_1p8>;
+		vana-supply = <&vreg_bob>;
+		vdig-supply = <&vreg_s3a_1p35>;
+
+		orientation = <0>;
+		rotation = <270>;
+
+		port {
+			imx371_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <654000000 400000000>;
+				remote-endpoint = <&csiphy2_ep>;
+			};
+		};
+	};
+};
+
+&cci_i2c1 {
+	imx376k: camera@10 {
+		compatible = "sony,imx376k";
+		reg = <0x10>;
+
+		assigned-clocks = <&mmcc CAMSS_MCLK2_CLK>;
+		assigned-clock-rates = <24000000>;
+		clocks = <&mmcc CAMSS_MCLK2_CLK>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_mclk2_default &cam_rear_aux_default>;
+
+		reset-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
+		vdig-gpios = <&tlmm 8 GPIO_ACTIVE_HIGH>;
+		vana-gpios = <&tlmm 23 GPIO_ACTIVE_HIGH>;
+		vaf-gpios = <&tlmm 77 GPIO_ACTIVE_HIGH>;
+
+		vio-supply = <&vreg_lvs1a_1p8>;
+		vana-supply = <&vreg_bob>;
+		vdig-supply = <&vreg_s3a_1p35>;
+		vaf-supply = <&vreg_bob>;
+
+		orientation = <1>;
+		rotation = <90>;
+
+		port {
+			imx376k_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <500000000>;
+				remote-endpoint = <&csiphy1_ep>;
+			};
 		};
 	};
 };

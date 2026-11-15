@@ -77,6 +77,19 @@ static struct clk_alpha_pll_postdiv gpll0_out_main = {
 	},
 };
 
+static struct clk_fixed_factor gpll0_out_main_div2 = {
+	.mult = 1,
+	.div = 2,
+	.hw.init = &(struct clk_init_data){
+		.name = "gpll0_out_main_div2",
+		.parent_hws = (const struct clk_hw*[]) {
+			&gpll0_out_main.clkr.hw,
+		},
+		.num_parents = 1,
+		.ops = &clk_fixed_factor_ops,
+	},
+};
+
 static struct clk_alpha_pll_postdiv gpll0_out_odd = {
 	.offset = 0x0,
 	.regs = clk_alpha_pll_regs[CLK_ALPHA_PLL_TYPE_FABIA],
@@ -1397,7 +1410,7 @@ static struct clk_branch gcc_mmss_gpll0_div_clk = {
 		.hw.init = &(struct clk_init_data){
 			.name = "gcc_mmss_gpll0_div_clk",
 			.parent_hws = (const struct clk_hw *[]) {
-				&gpll0_out_main.clkr.hw,
+				&gpll0_out_main_div2.hw,
 			},
 			.num_parents = 1,
 			.ops = &clk_branch2_ops,
@@ -1441,7 +1454,7 @@ static struct clk_branch gcc_gpu_gpll0_div_clk = {
 		.hw.init = &(struct clk_init_data){
 			.name = "gcc_gpu_gpll0_div_clk",
 			.parent_hws = (const struct clk_hw *[]) {
-				&gpll0_out_main.clkr.hw,
+				&gpll0_out_main_div2.hw,
 			},
 			.num_parents = 1,
 			.ops = &clk_branch2_ops,
@@ -3359,6 +3372,10 @@ static const struct qcom_cc_desc gcc_msm8998_desc = {
 	.num_resets = ARRAY_SIZE(gcc_msm8998_resets),
 	.gdscs = gcc_msm8998_gdscs,
 	.num_gdscs = ARRAY_SIZE(gcc_msm8998_gdscs),
+	.clk_hws = (struct clk_hw *[]){
+		&gpll0_out_main_div2.hw,
+	},
+	.num_clk_hws = 1,
 };
 
 static int gcc_msm8998_probe(struct platform_device *pdev)

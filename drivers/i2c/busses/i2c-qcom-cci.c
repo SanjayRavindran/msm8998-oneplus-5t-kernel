@@ -11,6 +11,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
 
 #define CCI_HW_VERSION				0x0
 #define CCI_RESET_CMD				0x004
@@ -130,6 +131,7 @@ struct cci {
 	const struct cci_data *data;
 	struct clk_bulk_data *clocks;
 	int nclocks;
+	struct regulator *vio;
 	struct cci_master master[NUM_MASTERS];
 };
 
@@ -261,6 +263,8 @@ static int cci_init(struct cci *cci)
 			CCI_IRQ_MASK_0_I2C_M1_ERROR;
 	int i;
 
+	writel(GENMASK(31, 0), cci->base + CCI_IRQ_CLEAR_0);
+	writel(0x1, cci->base + CCI_IRQ_GLOBAL_CLEAR_CMD);
 	writel(val, cci->base + CCI_IRQ_MASK_0);
 
 	for (i = 0; i < cci->data->num_masters; i++) {
@@ -306,6 +310,7 @@ static int cci_run_queue(struct cci *cci, u8 master, u8 queue)
 					 CCI_TIMEOUT)) {
 		dev_err(cci->dev, "master %d queue %d timeout\n",
 			master, queue);
+		cci_halt(cci, master);
 		cci_reset(cci);
 		cci_init(cci);
 		return -ETIMEDOUT;
@@ -467,12 +472,26 @@ static const struct i2c_algorithm cci_algo = {
 
 static int cci_enable_clocks(struct cci *cci)
 {
-	return clk_bulk_prepare_enable(cci->nclocks, cci->clocks);
+	int ret;
+
+	if (cci->vio) {
+		ret = regulator_enable(cci->vio);
+		if (ret)
+			return ret;
+	}
+
+	ret = clk_bulk_prepare_enable(cci->nclocks, cci->clocks);
+	if (ret && cci->vio)
+		regulator_disable(cci->vio);
+
+	return ret;
 }
 
 static void cci_disable_clocks(struct cci *cci)
 {
 	clk_bulk_disable_unprepare(cci->nclocks, cci->clocks);
+	if (cci->vio)
+		regulator_disable(cci->vio);
 }
 
 static int __maybe_unused cci_suspend_runtime(struct device *dev)
@@ -590,6 +609,14 @@ static int cci_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, -EINVAL, "not enough clocks in DT\n");
 	cci->nclocks = ret;
 
+	cci->vio = devm_regulator_get_optional(dev, "vio");
+	if (IS_ERR(cci->vio)) {
+		ret = PTR_ERR(cci->vio);
+		if (ret != -ENODEV)
+			return dev_err_probe(dev, ret, "failed to get vio regulator\n");
+		cci->vio = NULL;
+	}
+
 	ret = cci_enable_clocks(cci);
 	if (ret < 0)
 		return ret;
@@ -668,6 +695,8 @@ static void cci_remove(struct platform_device *pdev)
 	}
 
 	disable_irq(cci->irq);
+	if (!pm_runtime_status_suspended(&pdev->dev))
+		cci_disable_clocks(cci);
 	pm_runtime_disable(&pdev->dev);
 	pm_runtime_set_suspended(&pdev->dev);
 }

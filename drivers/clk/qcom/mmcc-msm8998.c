@@ -888,6 +888,7 @@ static const struct freq_tbl ftbl_mclk_clk_src[] = {
 
 static struct clk_rcg2 mclk0_clk_src = {
 	.cmd_rcgr = 0x3360,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -901,6 +902,7 @@ static struct clk_rcg2 mclk0_clk_src = {
 
 static struct clk_rcg2 mclk1_clk_src = {
 	.cmd_rcgr = 0x3390,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -914,6 +916,7 @@ static struct clk_rcg2 mclk1_clk_src = {
 
 static struct clk_rcg2 mclk2_clk_src = {
 	.cmd_rcgr = 0x33c0,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -927,6 +930,7 @@ static struct clk_rcg2 mclk2_clk_src = {
 
 static struct clk_rcg2 mclk3_clk_src = {
 	.cmd_rcgr = 0x33f0,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -2606,6 +2610,8 @@ static struct gdsc mdss_gdsc = {
 	.pwrsts = PWRSTS_OFF_ON,
 };
 
+static struct gdsc bimc_smmu_gdsc;
+
 static struct gdsc camss_top_gdsc = {
 	.gdscr = 0x34a0,
 	.cxcs = (unsigned int []){ 0x35b8, 0x36c4, 0x3704, 0x3714, 0x3494,
@@ -2614,6 +2620,7 @@ static struct gdsc camss_top_gdsc = {
 	.pd = {
 		.name = "camss_top",
 	},
+	.parent = &bimc_smmu_gdsc.pd,
 	.pwrsts = PWRSTS_OFF_ON,
 };
 
