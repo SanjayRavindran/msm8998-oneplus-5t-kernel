@@ -3400,6 +3400,34 @@
 			#mbox-cells = <1>;
 		};
 
+		cpufreq_osm: cpufreq@179c0000 {
+			compatible = "qcom,msm8998-osm-cpufreq";
+			reg = <0x179c0000 0x4000>,
+			      <0x179d1000 0x1000>,
+			      <0x17914800 0x800>,
+			      <0x17814800 0x800>,
+			      <0x00784000 0x1000>,
+			      <0x179c8000 0x4000>,
+			      <0x179c4000 0x4000>,
+			      <0x17912000 0x1000>,
+			      <0x17812000 0x1000>;
+			reg-names = "osm",
+				    "apcs-common",
+				    "pwrcl-acd",
+				    "perfcl-acd",
+				    "qfprom",
+				    "cprh-pwrcl",
+				    "cprh-perfcl",
+				    "saw4-pwrcl",
+				    "saw4-perfcl";
+			interrupts = <GIC_SPI 35 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 36 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "pwrcl", "perfcl";
+			clocks = <&gcc HMSS_GPLL0_CLK_SRC>,
+				 <&gcc GCC_HMSS_RBCPR_CLK>;
+			clock-names = "aux", "rbcpr";
+		};
+
 		timer@17920000 {
 			#address-cells = <1>;
 			#size-cells = <1>;

@@ -169,6 +169,18 @@ config ARM_QCOM_CPUFREQ_HW
 	  The driver implements the cpufreq interface for this HW engine.
 	  Say Y if you want to support CPUFreq HW.
 
+config ARM_MSM8998_OSM_CPUFREQ
+	tristate "Qualcomm MSM8998 OSM v2 + CPRh CPUFreq driver"
+	depends on ARCH_QCOM || COMPILE_TEST
+	depends on COMMON_CLK
+	depends on QCOM_SCM
+	help
+	  Support for the Qualcomm MSM8998 (Snapdragon 835) Operating State
+	  Manager (OSM) v2, Core Power Reduction hardened (CPRh), and SAW4 AVS
+	  CPU frequency and voltage scaling hardware.
+
+	  If in doubt, say N.
+
 config ARM_RASPBERRYPI_CPUFREQ
 	tristate "Raspberry Pi cpufreq support"
 	depends on CLK_RASPBERRYPI || COMPILE_TEST
