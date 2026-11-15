@@ -1772,10 +1772,25 @@ static int ath10k_snoc_probe(struct platform_device *pdev)
 	for (i = 0; i < ar_snoc->num_vregs; i++)
 		ar_snoc->vregs[i].supply = ath10k_regulators[i];
 
-	ret = devm_regulator_bulk_get(&pdev->dev, ar_snoc->num_vregs,
+	/* Last supply (vdd-3.3-ch1) is optional for 1x1 WCN3990 designs (e.g. MSM8998). */
+	ret = devm_regulator_bulk_get(&pdev->dev, ar_snoc->num_vregs - 1,
 				      ar_snoc->vregs);
 	if (ret < 0)
 		goto err_free_irq;
+
+	{
+		struct regulator *ch1 = devm_regulator_get_optional(&pdev->dev,
+					ar_snoc->vregs[ar_snoc->num_vregs - 1].supply);
+		if (IS_ERR(ch1)) {
+			if (PTR_ERR(ch1) != -ENODEV) {
+				ret = PTR_ERR(ch1);
+				goto err_free_irq;
+			}
+			ar_snoc->num_vregs--;
+		} else {
+			ar_snoc->vregs[ar_snoc->num_vregs - 1].consumer = ch1;
+		}
+	}
 
 	ar_snoc->num_clks = ARRAY_SIZE(ath10k_clocks);
 	ar_snoc->clks = devm_kcalloc(&pdev->dev, ar_snoc->num_clks,
