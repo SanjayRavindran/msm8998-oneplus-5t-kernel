@@ -526,9 +526,15 @@ int qnoc_probe(struct platform_device *pdev)
 			return -ENODEV;
 		}
 
-		mmio = devm_ioremap_resource(dev, res);
-		if (IS_ERR(mmio))
-			return PTR_ERR(mmio);
+		if (desc->shared_mmio) {
+			mmio = devm_ioremap(dev, res->start, resource_size(res));
+			if (!mmio)
+				return -ENOMEM;
+		} else {
+			mmio = devm_ioremap_resource(dev, res);
+			if (IS_ERR(mmio))
+				return PTR_ERR(mmio);
+		}
 
 		qp->regmap = devm_regmap_init_mmio(dev, mmio, desc->regmap_cfg);
 		if (IS_ERR(qp->regmap)) {

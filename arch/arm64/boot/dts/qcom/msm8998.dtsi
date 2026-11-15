@@ -10,6 +10,8 @@
 #include <dt-bindings/firmware/qcom,scm.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interconnect/qcom,msm8998.h>
+#include <dt-bindings/interconnect/qcom,rpm-icc.h>
 
 / {
 	interrupt-parent = <&intc>;
@@ -882,6 +884,63 @@
 			clock-names = "core";
 		};
 
+		bimc: interconnect@1008000 {
+			compatible = "qcom,msm8998-bimc";
+			reg = <0x01008000 0x5a000>;
+			#interconnect-cells = <2>;
+		};
+
+		bwmon: pmu@1008000 {
+			compatible = "qcom,msm8998-bwmon";
+			reg = <0x01008000 0x300>, <0x01001000 0x200>;
+			reg-names = "monitor", "global";
+			interrupts = <GIC_SPI 183 IRQ_TYPE_LEVEL_HIGH>;
+			interconnects = <&bimc MASTER_GNOC_BIMC RPM_ACTIVE_TAG>,
+					<&bimc SLAVE_EBI RPM_ACTIVE_TAG>;
+			operating-points-v2 = <&cpu_bwmon_opp_table>;
+
+			cpu_bwmon_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				opp-0 {
+					opp-peak-kBps = <800000>;
+				};
+				opp-1 {
+					opp-peak-kBps = <1200000>;
+				};
+				opp-2 {
+					opp-peak-kBps = <1600000>;
+				};
+				opp-3 {
+					opp-peak-kBps = <2400000>;
+				};
+				opp-4 {
+					opp-peak-kBps = <3296000>;
+				};
+				opp-5 {
+					opp-peak-kBps = <4376000>;
+				};
+				opp-6 {
+					opp-peak-kBps = <5448000>;
+				};
+				opp-7 {
+					opp-peak-kBps = <6144000>;
+				};
+				opp-8 {
+					opp-peak-kBps = <8136000>;
+				};
+				opp-9 {
+					opp-peak-kBps = <10368000>;
+				};
+				opp-10 {
+					opp-peak-kBps = <12440000>;
+				};
+				opp-11 {
+					opp-peak-kBps = <14432000>;
+				};
+			};
+		};
+
 		tsens0: thermal@10ab000 {
 			compatible = "qcom,msm8998-tsens", "qcom,tsens-v2";
 			reg = <0x010ab000 0x1000>, /* TM */
@@ -902,6 +961,30 @@
 				     <GIC_SPI 430 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "uplow", "critical";
 			#thermal-sensor-cells = <1>;
+		};
+
+		cnoc: interconnect@1500000 {
+			compatible = "qcom,msm8998-cnoc";
+			reg = <0x01500000 0x10000>;
+			#interconnect-cells = <2>;
+		};
+
+		snoc: interconnect@1625000 {
+			compatible = "qcom,msm8998-snoc";
+			reg = <0x01625000 0x4010>;
+			#interconnect-cells = <2>;
+		};
+
+		a1noc: interconnect@1669000 {
+			compatible = "qcom,msm8998-a1noc";
+			reg = <0x01669000 0x5010>;
+			#interconnect-cells = <2>;
+			clock-names = "ufs_axi",
+				      "aggre1_ufs_axi",
+				      "aggre1_usb3_axi";
+			clocks = <&gcc GCC_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_USB3_AXI_CLK>;
 		};
 
 		anoc1_smmu: iommu@1680000 {
@@ -936,6 +1019,22 @@
 				<GIC_SPI 463 IRQ_TYPE_EDGE_RISING>,
 				<GIC_SPI 464 IRQ_TYPE_EDGE_RISING>,
 				<GIC_SPI 465 IRQ_TYPE_EDGE_RISING>;
+		};
+
+		a2noc: interconnect@1705000 {
+			compatible = "qcom,msm8998-a2noc";
+			reg = <0x01705000 0xa010>;
+			#interconnect-cells = <2>;
+			clock-names = "ipa";
+			clocks = <&rpmcc RPM_SMD_IPA_CLK>;
+		};
+
+		mnoc: interconnect@1744000 {
+			compatible = "qcom,msm8998-mnoc";
+			reg = <0x01744000 0x9010>;
+			#interconnect-cells = <2>;
+			clock-names = "iface";
+			clocks = <&mmcc MNOC_AHB_CLK>;
 		};
 
 		pcie0: pcie@1c00000 {
@@ -1033,6 +1132,11 @@
 
 		ufshc: ufshc@1da4000 {
 			compatible = "qcom,msm8998-ufshc", "qcom,ufshc", "jedec,ufs-2.0";
+			interconnects = <&a1noc MASTER_UFS RPM_ALWAYS_TAG>,
+					<&bimc SLAVE_EBI RPM_ALWAYS_TAG>,
+					<&gnoc MASTER_APPS_PROC RPM_ALWAYS_TAG>,
+					<&cnoc SLAVE_UFS_CFG RPM_ALWAYS_TAG>;
+			interconnect-names = "ufs-ddr", "cpu-ufs";
 			reg = <0x01da4000 0x2500>;
 			interrupts = <GIC_SPI 265 IRQ_TYPE_LEVEL_HIGH>;
 			phys = <&ufsphy>;
@@ -1114,6 +1218,9 @@
 
 		crypto: crypto@1dfa000 {
 			compatible = "qcom,crypto-v5.4";
+			interconnects = <&a2noc MASTER_CRYPTO_CORE0 RPM_ALWAYS_TAG>,
+					<&bimc SLAVE_EBI RPM_ALWAYS_TAG>;
+			interconnect-names = "memory";
 			reg = <0x01dfa000 0x6000>;
 			clocks = <&rpmcc RPM_SMD_CE1_CLK>;
 			clock-names = "core";
@@ -1124,6 +1231,13 @@
 
 		ipa: ipa@1e40000 {
 			compatible = "qcom,msm8998-ipa";
+			interconnects = <&a2noc MASTER_IPA RPM_ALWAYS_TAG>,
+					<&bimc SLAVE_EBI RPM_ALWAYS_TAG>,
+					<&a2noc MASTER_IPA RPM_ALWAYS_TAG>,
+					<&snoc SLAVE_IMEM RPM_ALWAYS_TAG>,
+					<&gnoc MASTER_APPS_PROC RPM_ALWAYS_TAG>,
+					<&cnoc SLAVE_IPA_CFG RPM_ALWAYS_TAG>;
+			interconnect-names = "memory", "imem", "config";
 
 			iommus = <&anoc2_smmu 0x18e0>,
 				 <&anoc2_smmu 0x18e2>;
@@ -2266,6 +2380,11 @@
 			compatible = "qcom,msm8998-dwc3", "qcom,dwc3";
 			reg = <0x0a8f8800 0x400>;
 			status = "disabled";
+			interconnects = <&a1noc MASTER_USB3 RPM_ALWAYS_TAG>,
+					<&bimc SLAVE_EBI RPM_ALWAYS_TAG>,
+					<&gnoc MASTER_APPS_PROC RPM_ALWAYS_TAG>,
+					<&cnoc SLAVE_USB3_0 RPM_ALWAYS_TAG>;
+			interconnect-names = "usb-ddr", "apps-usb";
 			#address-cells = <1>;
 			#size-cells = <1>;
 			ranges;
@@ -2920,6 +3039,13 @@
 				      "core";
 
 			power-domains = <&mmcc MDSS_GDSC>;
+			interconnects = <&mnoc MASTER_MDP_P0 RPM_ALWAYS_TAG>,
+					<&bimc SLAVE_EBI RPM_ALWAYS_TAG>,
+					<&mnoc MASTER_MDP_P1 RPM_ALWAYS_TAG>,
+					<&bimc SLAVE_EBI RPM_ALWAYS_TAG>,
+					<&gnoc MASTER_APPS_PROC RPM_ALWAYS_TAG>,
+					<&mnoc SLAVE_DISPLAY_CFG RPM_ALWAYS_TAG>;
+			interconnect-names = "mdp0-mem", "mdp1-mem", "cpu-cfg";
 			iommus = <&mmss_smmu 0>;
 			resets = <&mmcc MDSS_BCR>;
 
@@ -3263,6 +3389,11 @@
 			reg = <0x0cc00000 0xff000>;
 			interrupts = <GIC_SPI 287 IRQ_TYPE_LEVEL_HIGH>;
 			power-domains = <&mmcc VIDEO_TOP_GDSC>;
+			interconnects = <&mnoc MASTER_VIDEO_P0 RPM_ALWAYS_TAG>,
+					<&bimc SLAVE_EBI RPM_ALWAYS_TAG>,
+					<&gnoc MASTER_APPS_PROC RPM_ALWAYS_TAG>,
+					<&mnoc SLAVE_VENUS_CFG RPM_ALWAYS_TAG>;
+			interconnect-names = "video-mem", "cpu-cfg";
 			clocks = <&mmcc VIDEO_CORE_CLK>,
 				 <&mmcc VIDEO_AHB_CLK>,
 				 <&mmcc VIDEO_AXI_CLK>,
@@ -3390,6 +3521,12 @@
 				qcom,remote-pid = <2>;
 				mboxes = <&apcs_glb 9>;
 			};
+		};
+
+		gnoc: interconnect@17900000 {
+			compatible = "qcom,msm8998-gnoc";
+			reg = <0x17900000 0x10000>;
+			#interconnect-cells = <2>;
 		};
 
 		apcs_glb: mailbox@17911000 {

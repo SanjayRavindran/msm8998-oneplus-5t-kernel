@@ -132,6 +132,7 @@ struct qcom_icc_desc {
 	const char * const *intf_clocks;
 	size_t num_intf_clocks;
 	bool keep_alive;
+	bool shared_mmio;
 	enum qcom_icc_type type;
 	const struct regmap_config *regmap_cfg;
 	unsigned int qos_offset;
