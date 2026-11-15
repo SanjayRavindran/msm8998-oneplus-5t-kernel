@@ -1293,6 +1293,46 @@
 		drive-strength = <2>;
 		bias-disable;
 	};
+
+	fp_enable_active: fp-enable-active-state {
+		pins = "gpio25";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+		output-high;
+	};
+
+	fp_id_init: fp-id-init-state {
+		pins = "gpio39", "gpio41", "gpio63";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		input-enable;
+	};
+
+	goodixfp_enable_init: goodixfp-enable-init-state {
+		pins = "gpio65";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+		output-high;
+	};
+
+	goodixfp_disable_init: goodixfp-disable-init-state {
+		pins = "gpio65";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+		output-low;
+	};
+
+	goodixfp_irq_init: goodixfp-irq-init-state {
+		pins = "gpio121";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		input-enable;
+	};
 };
 
 &ufshc {
@@ -1681,4 +1721,5 @@
 		qcom,commonlib64-loaded-by-uefi;
 		qcom,qsee-reentrancy-support = <2>;
 	};
+
 };

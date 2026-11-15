@@ -1000,4 +1000,12 @@ config INPUT_STPMIC1_ONKEY
 	  To compile this driver as a module, choose M here: the
 	  module will be called stpmic1_onkey.
 
+
+config INPUT_GOODIX_OP5T
+	tristate "Goodix GF5216/GF5288 Fingerprint Sensor Bridge (OnePlus 5T)"
+	depends on OF && GPIOLIB && NET
+	help
+	  Clean-room Goodix GF5216/GF5288 fingerprint platform/IRQ/Netlink
+	  and ID-detect driver for OnePlus 5T (/dev/goodix_fp, Netlink 25).
+
 endif

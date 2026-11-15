@@ -97,3 +97,4 @@ obj-$(CONFIG_INPUT_YEALINK)		+= yealink.o
 obj-$(CONFIG_INPUT_IDEAPAD_SLIDEBAR)	+= ideapad_slidebar.o
 
 obj-$(CONFIG_INPUT_QCOM_PMI8998_HAPTICS) += qcom-pmi8998-haptics.o
+obj-$(CONFIG_INPUT_GOODIX_OP5T)		+= goodix_op5t.o
