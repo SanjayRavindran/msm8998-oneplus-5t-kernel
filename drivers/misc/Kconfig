@@ -661,4 +661,12 @@ source "drivers/misc/mchp_pci1xxxx/Kconfig"
 source "drivers/misc/keba/Kconfig"
 source "drivers/misc/amd-sbi/Kconfig"
 source "drivers/misc/rp1/Kconfig"
+config QCOM_QSEECOM_DEV
+	tristate "Qualcomm QSEECOM (/dev/qseecom) TrustZone communicator"
+	depends on QCOM_SCM=y && DMA_SHARED_BUFFER
+	help
+	  Provides /dev/qseecom character device and kernel client APIs for
+	  loading and communicating with Qualcomm TrustZone QSEE Trusted
+	  Applications and RPMB/filesystem listener services.
+
 endmenu

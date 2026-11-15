@@ -166,6 +166,15 @@
 			reg = <0x0 0xf6900000 0x0 0x2000>;
 			no-map;
 		};
+
+		qseecom_region: qseecom-region {
+			compatible = "shared-dma-pool";
+			alloc-ranges = <0x0 0x0 0x0 0xffffffff>;
+			reusable;
+			alignment = <0x0 0x400000>;
+			size = <0x0 0x2000000>;
+			linux,cma-default;
+		};
 	};
 
 	blp637: battery {
@@ -1658,4 +1667,18 @@
 			   <GCC_MMSS_QM_CORE_CLK>,
 			   <GCC_GPU_BIMC_GFX_SRC_CLK>,
 			   <GCC_GPU_SNOC_DVM_GFX_CLK>;
+};
+
+
+&soc {
+	qseecom: qseecom@86600000 {
+		compatible = "qcom,qseecom";
+		reg = <0x86600000 0x2200000>;
+		reg-names = "secapp-region";
+		memory-region = <&qseecom_region>;
+		qcom,no-clock-support;
+		qcom,appsbl-qseecom-support;
+		qcom,commonlib64-loaded-by-uefi;
+		qcom,qsee-reentrancy-support = <2>;
+	};
 };

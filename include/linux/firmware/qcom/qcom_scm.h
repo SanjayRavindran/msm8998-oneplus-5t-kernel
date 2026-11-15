@@ -153,6 +153,18 @@ int qcom_scm_shm_bridge_create(u64 pfn_and_ns_perm_flags,
 			       u64 ns_vmids, u64 *handle);
 int qcom_scm_shm_bridge_delete(u64 handle);
 
+struct qcom_scm_qseecom_resp {
+	u64 result;
+	u64 resp_type;
+	u64 data;
+};
+
+int qcom_scm_qseecom_raw(u32 owner, u32 svc, u32 cmd, u32 arginfo,
+			 const u64 *args, size_t nargs,
+			 struct qcom_scm_qseecom_resp *res);
+void *qcom_scm_tzmem_alloc(size_t size, gfp_t gfp, phys_addr_t *paddr);
+void qcom_scm_tzmem_free(void *ptr);
+
 #ifdef CONFIG_QCOM_QSEECOM
 
 int qcom_scm_qseecom_app_get_id(const char *app_name, u32 *app_id);

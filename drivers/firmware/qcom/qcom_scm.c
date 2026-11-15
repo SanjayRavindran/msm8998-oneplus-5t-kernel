@@ -66,17 +66,7 @@ struct qcom_scm_mem_map_info {
 	__le64 mem_size;
 };
 
-/**
- * struct qcom_scm_qseecom_resp - QSEECOM SCM call response.
- * @result:    Result or status of the SCM call. See &enum qcom_scm_qseecom_result.
- * @resp_type: Type of the response. See &enum qcom_scm_qseecom_resp_type.
- * @data:      Response data. The type of this data is given in @resp_type.
- */
-struct qcom_scm_qseecom_resp {
-	u64 result;
-	u64 resp_type;
-	u64 data;
-};
+/* struct qcom_scm_qseecom_resp defined in <linux/firmware/qcom/qcom_scm.h> */
 
 enum qcom_scm_qseecom_result {
 	QSEECOM_RESULT_SUCCESS			= 0,
@@ -2096,6 +2086,75 @@ static int qcom_scm_qseecom_init(struct qcom_scm *scm)
 }
 
 #endif /* CONFIG_QCOM_QSEECOM */
+
+/**
+ * qcom_scm_qseecom_raw() - Execute a QSEECOM SCM call on behalf of /dev/qseecom.
+ * @owner:   ARM SMCCC / TZ owner ID (e.g. QSEE_OS, TZ_APPS, SIP).
+ * @svc:     TZ service ID.
+ * @cmd:     TZ command ID.
+ * @arginfo: QCOM_SCM_ARGS() descriptor.
+ * @args:    Argument array (up to MAX_QCOM_SCM_ARGS).
+ * @nargs:   Number of entries in @args.
+ * @res:     Output response (result, resp_type, data).
+ *
+ * Return: 0 on SMC transport success (inspect @res->result), -EPROBE_DEFER if
+ * SCM is not yet probed, or negative errno on SMC failure.
+ */
+int qcom_scm_qseecom_raw(u32 owner, u32 svc, u32 cmd, u32 arginfo,
+			 const u64 *args, size_t nargs,
+			 struct qcom_scm_qseecom_resp *res)
+{
+	struct qcom_scm_desc desc = {
+		.owner = owner,
+		.svc = svc,
+		.cmd = cmd,
+		.arginfo = arginfo,
+	};
+	struct qcom_scm_res scm_res = {};
+	size_t i;
+	int ret;
+
+	if (!__scm)
+		return -EPROBE_DEFER;
+
+	if (nargs > MAX_QCOM_SCM_ARGS)
+		return -EINVAL;
+
+	for (i = 0; i < nargs; i++)
+		desc.args[i] = args[i];
+
+	ret = qcom_scm_call(__scm->dev, &desc, &scm_res);
+	if (res) {
+		res->result = scm_res.result[0];
+		res->resp_type = scm_res.result[1];
+		res->data = scm_res.result[2];
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(qcom_scm_qseecom_raw);
+
+void *qcom_scm_tzmem_alloc(size_t size, gfp_t gfp, phys_addr_t *paddr)
+{
+	void *ptr;
+
+	if (!__scm || !__scm->mempool)
+		return NULL;
+
+	ptr = qcom_tzmem_alloc(__scm->mempool, size, gfp);
+	if (ptr && paddr)
+		*paddr = qcom_tzmem_to_phys(ptr);
+	return ptr;
+}
+EXPORT_SYMBOL_GPL(qcom_scm_tzmem_alloc);
+
+void qcom_scm_tzmem_free(void *ptr)
+{
+	if (ptr)
+		qcom_tzmem_free(ptr);
+}
+EXPORT_SYMBOL_GPL(qcom_scm_tzmem_free);
+
 
 /**
  * qcom_scm_qtee_invoke_smc() - Invoke a QTEE object.
