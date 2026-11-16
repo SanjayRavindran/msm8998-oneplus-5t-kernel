@@ -537,6 +537,20 @@
 	};
 };
 
+&blsp1_spi1 {
+	/* GPIOs 0-3 (blsp1_spi1) are TZ XPU protected on production firmware */
+	status = "disabled";
+
+	ese@0 {
+		compatible = "nxp,p61";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		ese-pwr-gpios = <&tlmm 37 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_ese_pwr_active>;
+	};
+};
+
 &blsp1_i2c6 {
 	status = "okay";
 
@@ -987,6 +1001,23 @@
 
 &blsp2_i2c1 {
 	status = "okay";
+	clock-frequency = <100000>;
+
+	dash-charger@26 {
+		compatible = "oneplus,dash-charger";
+		reg = <0x26>;
+
+		mcu-en-gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
+		usb-sw-gpios = <&tlmm 90 GPIO_ACTIVE_HIGH>,
+			       <&tlmm 91 GPIO_ACTIVE_HIGH>;
+		ap-clk-gpios = <&tlmm 79 GPIO_ACTIVE_HIGH>;
+		ap-data-gpios = <&tlmm 80 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default", "data_active", "data_output";
+		pinctrl-0 = <&dash_usb_sw_default &dash_ap_clk_active>;
+		pinctrl-1 = <&dash_ap_data_active>;
+		pinctrl-2 = <&dash_ap_data_output>;
+	};
 
 	fuel-gauge@55 {
 		compatible = "ti,bq27411";
@@ -1264,11 +1295,40 @@
 		bias-pull-down;
 	};
 
-	/* Lock OnePlus Dash USB D+/D- analog switch permanently to MSM8998 PHY */
+	/* Default OnePlus Dash USB D+/D- analog switch to MSM8998 PHY */
 	dash_usb_sw_default: dash-usb-sw-default-state {
 		pins = "gpio90", "gpio91", "gpio96";
 		function = "gpio";
 		drive-strength = <2>;
+		bias-disable;
+		output-low;
+	};
+
+	dash_ap_clk_active: dash-ap-clk-active-state {
+		pins = "gpio79";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-pull-up;
+	};
+
+	dash_ap_data_active: dash-ap-data-active-state {
+		pins = "gpio80";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-pull-up;
+	};
+
+	dash_ap_data_output: dash-ap-data-output-state {
+		pins = "gpio80";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	nfc_ese_pwr_active: nfc-ese-pwr-active-state {
+		pins = "gpio37";
+		function = "gpio";
+		drive-strength = <6>;
 		bias-disable;
 		output-low;
 	};
@@ -1356,9 +1416,6 @@
 
 &usb3 {
 	status = "okay";
-
-	pinctrl-names = "default";
-	pinctrl-0 = <&dash_usb_sw_default>;
 
 	/* Disable USB3 clock requirement as the device only supports USB2 */
 	qcom,select-utmi-as-pipe-clk;
