@@ -331,20 +331,54 @@ static int ctrl_cmd_hello(struct sockaddr_qrtr *sq)
 	return announce_servers(sq);
 }
 
-static int ctrl_cmd_bye(struct sockaddr_qrtr *from)
+static int ctrl_notify_local_servers(struct qrtr_ctrl_pkt *pkt,
+				     const char *cmd_name)
 {
 	struct qrtr_node *local_node;
-	struct qrtr_ctrl_pkt pkt;
 	struct qrtr_server *srv;
 	struct sockaddr_qrtr sq;
 	struct msghdr msg = { };
-	struct qrtr_node *node;
 	unsigned long index;
-	struct kvec iv;
+	struct kvec iv = {
+		.iov_base = pkt,
+		.iov_len = sizeof(*pkt),
+	};
 	int ret;
 
-	iv.iov_base = &pkt;
-	iv.iov_len = sizeof(pkt);
+	local_node = node_get(qrtr_ns.local_node);
+	if (!local_node)
+		return 0;
+
+	xa_for_each(&local_node->servers, index, srv) {
+		sq.sq_family = AF_QIPCRTR;
+		sq.sq_node = srv->node;
+		sq.sq_port = srv->port;
+
+		msg.msg_name = (struct sockaddr *)&sq;
+		msg.msg_namelen = sizeof(sq);
+
+		ret = kernel_sendmsg(qrtr_ns.sock, &msg, &iv, 1, sizeof(*pkt));
+		if (ret < 0 && ret != -ENODEV) {
+			/* Skip congested local sockets so other servers still get notified */
+			if (ret == -ENOSPC) {
+				pr_warn_ratelimited("qrtr: %s rx queue full for %d:%d\n",
+						    cmd_name, srv->node, srv->port);
+				continue;
+			}
+			pr_err("failed to send %s cmd\n", cmd_name);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
+static int ctrl_cmd_bye(struct sockaddr_qrtr *from)
+{
+	struct qrtr_ctrl_pkt pkt;
+	struct qrtr_server *srv;
+	struct qrtr_node *node;
+	unsigned long index;
 
 	node = node_get(from->sq_node);
 	if (!node)
@@ -355,49 +389,21 @@ static int ctrl_cmd_bye(struct sockaddr_qrtr *from)
 		server_del(node, srv->port, true);
 
 	/* Advertise the removal of this client to all local servers */
-	local_node = node_get(qrtr_ns.local_node);
-	if (!local_node)
-		return 0;
-
 	memset(&pkt, 0, sizeof(pkt));
 	pkt.cmd = cpu_to_le32(QRTR_TYPE_BYE);
 	pkt.client.node = cpu_to_le32(from->sq_node);
 
-	xa_for_each(&local_node->servers, index, srv) {
-		sq.sq_family = AF_QIPCRTR;
-		sq.sq_node = srv->node;
-		sq.sq_port = srv->port;
-
-		msg.msg_name = (struct sockaddr *)&sq;
-		msg.msg_namelen = sizeof(sq);
-
-		ret = kernel_sendmsg(qrtr_ns.sock, &msg, &iv, 1, sizeof(pkt));
-		if (ret < 0 && ret != -ENODEV) {
-			pr_err("failed to send bye cmd\n");
-			return ret;
-		}
-	}
-	return 0;
+	return ctrl_notify_local_servers(&pkt, "bye");
 }
 
 static int ctrl_cmd_del_client(struct sockaddr_qrtr *from,
 			       unsigned int node_id, unsigned int port)
 {
-	struct qrtr_node *local_node;
 	struct qrtr_lookup *lookup;
 	struct qrtr_ctrl_pkt pkt;
-	struct msghdr msg = { };
-	struct qrtr_server *srv;
-	struct sockaddr_qrtr sq;
 	struct qrtr_node *node;
 	struct list_head *tmp;
 	struct list_head *li;
-	unsigned long index;
-	struct kvec iv;
-	int ret;
-
-	iv.iov_base = &pkt;
-	iv.iov_len = sizeof(pkt);
 
 	/* Don't accept spoofed messages */
 	if (from->sq_node != node_id)
@@ -428,30 +434,12 @@ static int ctrl_cmd_del_client(struct sockaddr_qrtr *from,
 		server_del(node, port, false);
 
 	/* Advertise the removal of this client to all local servers */
-	local_node = node_get(qrtr_ns.local_node);
-	if (!local_node)
-		return 0;
-
 	memset(&pkt, 0, sizeof(pkt));
 	pkt.cmd = cpu_to_le32(QRTR_TYPE_DEL_CLIENT);
 	pkt.client.node = cpu_to_le32(node_id);
 	pkt.client.port = cpu_to_le32(port);
 
-	xa_for_each(&local_node->servers, index, srv) {
-		sq.sq_family = AF_QIPCRTR;
-		sq.sq_node = srv->node;
-		sq.sq_port = srv->port;
-
-		msg.msg_name = (struct sockaddr *)&sq;
-		msg.msg_namelen = sizeof(sq);
-
-		ret = kernel_sendmsg(qrtr_ns.sock, &msg, &iv, 1, sizeof(pkt));
-		if (ret < 0 && ret != -ENODEV) {
-			pr_err("failed to send del client cmd\n");
-			return ret;
-		}
-	}
-	return 0;
+	return ctrl_notify_local_servers(&pkt, "del client");
 }
 
 static int ctrl_cmd_new_server(struct sockaddr_qrtr *from,
