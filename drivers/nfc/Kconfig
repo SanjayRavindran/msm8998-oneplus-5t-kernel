@@ -70,4 +70,12 @@ source "drivers/nfc/st-nci/Kconfig"
 source "drivers/nfc/nxp-nci/Kconfig"
 source "drivers/nfc/s3fwrn5/Kconfig"
 source "drivers/nfc/st95hf/Kconfig"
+
+config NFC_NXP_P61_ESE
+	tristate "NXP P61/P73 SPI embedded Secure Element driver"
+	depends on SPI && GPIOLIB
+	help
+	  Say Y or M here to enable the clean-room NXP P61/P73 SPI eSE
+	  character device (/dev/p73) driver.
+
 endmenu
