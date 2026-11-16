@@ -29,7 +29,8 @@ This repository provides a mainline **Linux 6.18** (`dumpling-6.18-android17`, b
 - **TrustZone & Storage Encryption / RPMB:** Clean-room `/dev/qseecom` (`qcom_scm` bridge + reserved `qseecom-region`), `UFS_IOCTL_QUERY` + SCSI Generic `/dev/sg*` (`CONFIG_CHR_DEV_SG`) for RPMB, UFS Inline Crypto Engine (ICE), Qualcomm Crypto Engine (`qce`), and TZ PRNG (`qcom-rng`).
 - **Biometrics (Fingerprint):** Clean-room Goodix GF5288 + ID detector (`oneplus,fpdetect`, `/dev/goodix_fp`, Netlink group 25, `gf_input`, `sensor_version=0x03 (gfp5288)`).
 - **Audio & WCD9335 CPE:** QDSP6/ADSP APR/GLINK audio (`0 [O5T]: msm8998-snd`), WCD9335 codec over SLIMbus, clean-room WCD9335 CPE Xtensa DSP loader (`cpe_9335.mdt`, CMI boot + `cpe_load` / `cpe_status`), and TFA989x/TFA9890 speaker amplifier support.
-- **Video Encode/Decode:** Qualcomm Venus (`venus.mdt`) hardware video decoder (`/dev/video6`) and encoder (`/dev/video7`) with MSM8998 VA bounds and subcore GDSC sequencing.
+- **Video Encode/Decode (Track 4):** Qualcomm Venus (`venus.mdt`) hardware video decoder (`/dev/video6`) and encoder (`/dev/video7`) with MSM8998 VA bounds, subcore GDSC/hwmode sequencing, `IS_V3` zero-buffer EOS handling, `parse_raw_formats()` HEVC cap parsing fix, and H264 8x8 transform property (`H264`, `HEVC`, `VP8`, `MPEG4`, `H263`, and `1080p` `H264`/`HEVC` live-verified).
+- **Dash / VOOC Fast Charge (`oneplus_dash`):** Clean-room STM8S003F3U6TR driver (`oneplus,dash-charger` @ `4-0026`) exposing `/dev/dash` and `power_supply/oneplus-dash`, verifying `oneplus/dash_stm8s.bin` via the post-reset bootloader window while keeping `usb_switch=0` (`gpio 90/91=0`).
 - **Remote Processors & Modems:** Modem (`mba.mbn` + `modem.mdt`), ADSP (`adsp.mdt`), SLPI (`slpi.mdt`), IPA v3.1 (`ipa_fws.mbn` + `rmnet_ipa0`), QRTR + `pd-mapper` + SMP2P AP sleepstate.
 - **Camera Pipeline (CAMSS):** CSIPHY/CSID/ISPIF/VFE media graph + Sony IMX398 / IMX376K / IMX371 clean-room sensor drivers, `lc898217xc` VCM actuator drivers, and `24c64` EEPROMs.
 - **Display, GPU, Input & Connectivity:** Samsung S6E3FC1 1080×2160 AMOLED DSI panel (configured with 5% default boot brightness to prevent burn-in during bring-up), Adreno 540 DRM/MSM (`a530_pfp`/`pm4` + `a540_gpmu`), Synaptics S3508 touchscreen (with DT2W), SPMI haptics, tri-state alert slider, Hall sensor, PM8998 flash/RGB LEDs, `bq27411` fuel gauge, WCN3990 Wi-Fi (`ath10k_snoc` / `wlan0`), Bluetooth (`hci0`), NXP NCI NFC (`nfc0`), and IMEM `syscon-reboot-mode` (`reboot bootloader` / `reboot recovery`).
@@ -39,9 +40,8 @@ This repository provides a mainline **Linux 6.18** (`dumpling-6.18-android17`, b
 
 Some stock vendor blobs cannot operate or remain out-of-tree under a clean-room mainline kernel without OnePlus/Qualcomm private protocols or locked-bootloader TrustZone boundaries:
 
-- **Dash / VOOC Fast Charge MCU (`microchip,oneplus_fastcg`, I2C `0x26`):** Standard USB-C / PM8998 charging works; proprietary VOOC handshake firmware is not ported.
 - **Widevine L1 & HDCP (`hdcp*.mdt`):** `hdcp*` firmware images are absent from this device's stock firmware partition, and an unlocked bootloader / TrustZone XPU boundary blocks OEM Widevine L1 keybox provisioning (Widevine L3 works).
-- **Optional NXP P61 SPI eSE (`nxp,p61`):** Not required for standard NFC (`nxp-nci` on I2C handles standard NFC) or consumer operation.
+- **NXP P61 SPI eSE (`nxp,p61` on `blsp1_spi1`):** Clean-room `nxp_p61_ese` driver implemented, but `GPIOs 0..3` (`gpio-reserved-ranges = <0 4>`) are TZ XPU protected on production firmware so `&blsp1_spi1` stays `disabled` in DT; standard NFC uses `nxp-nci` on I2C (`nfc0`).
 - **Hardware-N/A Stock Reference Stubs:** Upstream stock DTs/makefiles list other-device targets (`fpc1020`, `cpe_9340`, `a630_gmu`, `isdbtmm`, `keypad-backlight`, etc.) that are not present on OnePlus 5T (`dumpling`) hardware.
 
 ## Building
