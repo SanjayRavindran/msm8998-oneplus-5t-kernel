@@ -493,21 +493,47 @@ static int vdec_get_v3(struct device *dev)
 			       core->res->vcodec0_clks);
 }
 
+static int vcodec_power_v3(struct venus_core *core, struct device *dev,
+			   struct clk **clks, u32 session_type, int on)
+{
+	bool hwmode_ok = true;
+	int ret;
+
+	ret = dev_pm_genpd_set_hwmode(dev, false);
+	if (ret == -EOPNOTSUPP) {
+		hwmode_ok = false;
+		vcodec_control_v3(core, session_type, true);
+	} else if (ret) {
+		return ret;
+	}
+
+	if (on == POWER_ON) {
+		ret = vcodec_clks_enable(core, clks);
+		if (ret) {
+			if (!hwmode_ok)
+				vcodec_control_v3(core, session_type, false);
+			return ret;
+		}
+		if (hwmode_ok)
+			ret = dev_pm_genpd_set_hwmode(dev, true);
+		else
+			vcodec_control_v3(core, session_type, false);
+		return ret;
+	}
+
+	vcodec_clks_disable(core, clks);
+	if (!hwmode_ok)
+		vcodec_control_v3(core, session_type, false);
+
+	return 0;
+}
+
 static int vdec_power_v3(struct device *dev, int on)
 {
 	struct venus_core *core = dev_get_drvdata(dev);
-	int ret = 0;
 
-	vcodec_control_v3(core, VIDC_SESSION_TYPE_DEC, true);
-
-	if (on == POWER_ON)
-		ret = vcodec_clks_enable(core, core->vcodec0_clks);
-	else
-		vcodec_clks_disable(core, core->vcodec0_clks);
-
-	vcodec_control_v3(core, VIDC_SESSION_TYPE_DEC, false);
-
-	return ret;
+	return vcodec_power_v3(core, dev, core->vcodec0_clks,
+			       VIDC_SESSION_TYPE_DEC, on);
 }
 
 static int venc_get_v3(struct device *dev)
@@ -521,18 +547,9 @@ static int venc_get_v3(struct device *dev)
 static int venc_power_v3(struct device *dev, int on)
 {
 	struct venus_core *core = dev_get_drvdata(dev);
-	int ret = 0;
 
-	vcodec_control_v3(core, VIDC_SESSION_TYPE_ENC, true);
-
-	if (on == POWER_ON)
-		ret = vcodec_clks_enable(core, core->vcodec1_clks);
-	else
-		vcodec_clks_disable(core, core->vcodec1_clks);
-
-	vcodec_control_v3(core, VIDC_SESSION_TYPE_ENC, false);
-
-	return ret;
+	return vcodec_power_v3(core, dev, core->vcodec1_clks,
+			       VIDC_SESSION_TYPE_ENC, on);
 }
 
 static const struct venus_pm_ops pm_ops_v3 = {

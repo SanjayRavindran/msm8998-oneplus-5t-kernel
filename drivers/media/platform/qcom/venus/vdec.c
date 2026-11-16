@@ -543,6 +543,9 @@ static int vdec_subscribe_event(struct v4l2_fh *fh,
 	}
 }
 
+static int vdec_pm_get(struct venus_inst *inst);
+static int vdec_pm_put(struct venus_inst *inst, bool autosuspend);
+
 static int
 vdec_decoder_cmd(struct file *file, void *fh, struct v4l2_decoder_cmd *cmd)
 {
@@ -567,12 +570,18 @@ vdec_decoder_cmd(struct file *file, void *fh, struct v4l2_decoder_cmd *cmd)
 
 		fdata.buffer_type = HFI_BUFFER_INPUT;
 		fdata.flags |= HFI_BUFFERFLAG_EOS;
-		if (IS_V6(inst->core) && is_fw_rev_or_older(inst->core, 1, 0, 87))
+		if (IS_V3(inst->core) ||
+		    (IS_V6(inst->core) && is_fw_rev_or_older(inst->core, 1, 0, 87)))
 			fdata.device_addr = 0;
 		else
 			fdata.device_addr = 0xdeadb000;
 
+		ret = vdec_pm_get(inst);
+		if (ret)
+			goto unlock;
+
 		ret = hfi_session_process_buf(inst, &fdata);
+		vdec_pm_put(inst, true);
 
 		if (!ret && inst->codec_state == VENUS_DEC_STATE_DECODING) {
 			inst->codec_state = VENUS_DEC_STATE_DRAIN;
@@ -826,8 +835,10 @@ static int vdec_output_conf(struct venus_inst *inst)
 		if (ret)
 			return ret;
 
-		if (bufreq.size > inst->output_buf_size)
+		if (bufreq.size > inst->output_buf_size) {
+			dev_dbg(core->dev_dec, VDBGL "bufreq.size %u > output_buf_size %u\n", bufreq.size, inst->output_buf_size);
 			return -EINVAL;
+		}
 
 		if (inst->dpb_fmt) {
 			ret = venus_helper_get_bufreq(inst, HFI_BUFFER_OUTPUT2,
@@ -1052,17 +1063,23 @@ static int vdec_start_capture(struct venus_inst *inst)
 
 reconfigure:
 	ret = vdec_output_conf(inst);
-	if (ret)
+	if (ret) {
+		dev_dbg(inst->core->dev_dec, VDBGL "vdec_output_conf failed: %d\n", ret);
 		return ret;
+	}
 
 	ret = venus_helper_set_num_bufs(inst, inst->num_input_bufs,
 					VB2_MAX_FRAME, VB2_MAX_FRAME);
-	if (ret)
+	if (ret) {
+		dev_dbg(inst->core->dev_dec, VDBGL "set_num_bufs failed: %d\n", ret);
 		return ret;
+	}
 
 	ret = venus_helper_intbufs_realloc(inst);
-	if (ret)
+	if (ret) {
+		dev_dbg(inst->core->dev_dec, VDBGL "intbufs_realloc failed: %d\n", ret);
 		goto err;
+	}
 
 	venus_pm_load_scale(inst);
 
@@ -1277,7 +1294,7 @@ static void vdec_stop_streaming(struct vb2_queue *q)
 	struct venus_inst *inst = vb2_get_drv_priv(q);
 	int ret = -EINVAL;
 
-	vdec_pm_get_put(inst);
+	vdec_pm_get(inst);
 
 	mutex_lock(&inst->lock);
 
@@ -1300,6 +1317,7 @@ static void vdec_stop_streaming(struct vb2_queue *q)
 
 unlock:
 	mutex_unlock(&inst->lock);
+	vdec_pm_put(inst, true);
 }
 
 static void vdec_session_release(struct venus_inst *inst)
@@ -1374,17 +1392,29 @@ static void vdec_vb2_buf_queue(struct vb2_buffer *vb)
 
 	mutex_lock(&inst->lock);
 
-	if (inst->next_buf_last && V4L2_TYPE_IS_CAPTURE(vb->vb2_queue->type) &&
-	    inst->codec_state == VENUS_DEC_STATE_DRC) {
-		vbuf->flags |= V4L2_BUF_FLAG_LAST;
-		vbuf->sequence = inst->sequence_cap++;
-		vbuf->field = V4L2_FIELD_NONE;
-		vb2_set_plane_payload(vb, 0, 0);
-		v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_DONE);
-		v4l2_event_queue_fh(&inst->fh, &eos);
-		inst->next_buf_last = false;
-		mutex_unlock(&inst->lock);
-		return;
+	if (inst->streamon_cap &&
+	    V4L2_TYPE_IS_CAPTURE(vb->vb2_queue->type) &&
+	    (inst->codec_state == VENUS_DEC_STATE_DRC ||
+	     inst->codec_state == VENUS_DEC_STATE_STOPPED)) {
+		unsigned long flags;
+		bool do_last;
+
+		spin_lock_irqsave(&inst->eos_lock, flags);
+		do_last = inst->next_buf_last;
+		if (do_last) {
+			vbuf->sequence = inst->sequence_cap++;
+			inst->next_buf_last = false;
+		}
+		spin_unlock_irqrestore(&inst->eos_lock, flags);
+
+		if (do_last) {
+			vbuf->field = V4L2_FIELD_NONE;
+			vb2_set_plane_payload(vb, 0, 0);
+			v4l2_m2m_last_buffer_done(inst->m2m_ctx, vbuf);
+			v4l2_event_queue_fh(&inst->fh, &eos);
+			mutex_unlock(&inst->lock);
+			return;
+		}
 	}
 
 	venus_helper_vb2_buf_queue(vb);
@@ -1419,6 +1449,15 @@ static void vdec_buf_done(struct venus_inst *inst, unsigned int buf_type,
 
 	vbuf = venus_helper_find_buf(inst, type, tag);
 	if (!vbuf) {
+		if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
+		    (flags & V4L2_BUF_FLAG_LAST)) {
+			if (inst->codec_state == VENUS_DEC_STATE_DRAIN) {
+				inst->drain_active = false;
+				inst->codec_state = VENUS_DEC_STATE_STOPPED;
+			}
+			venus_helper_complete_eos(inst);
+			return;
+		}
 		venus_helper_change_dpb_owner(inst, vbuf, type, buf_type, tag);
 		return;
 	}
@@ -1444,7 +1483,9 @@ static void vdec_buf_done(struct venus_inst *inst, unsigned int buf_type,
 			}
 		}
 
-		if (!bytesused)
+		if (vbuf->flags & V4L2_BUF_FLAG_LAST)
+			v4l2_m2m_mark_stopped(inst->m2m_ctx);
+		else if (!bytesused)
 			state = VB2_BUF_STATE_ERROR;
 	} else {
 		vbuf->sequence = inst->sequence_out++;
@@ -1683,6 +1724,7 @@ static int vdec_open(struct file *file)
 	INIT_LIST_HEAD(&inst->dpbbufs);
 	INIT_LIST_HEAD(&inst->registeredbufs);
 	INIT_LIST_HEAD(&inst->internalbufs);
+	spin_lock_init(&inst->eos_lock);
 	INIT_LIST_HEAD(&inst->list);
 	mutex_init(&inst->lock);
 	mutex_init(&inst->ctx_q_lock);

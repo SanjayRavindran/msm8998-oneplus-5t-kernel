@@ -523,6 +523,9 @@ static int venc_subscribe_event(struct v4l2_fh *fh,
 	}
 }
 
+static int venc_pm_get(struct venus_inst *inst);
+static int venc_pm_put(struct venus_inst *inst, bool autosuspend);
+
 static int
 venc_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *cmd)
 {
@@ -547,9 +550,17 @@ venc_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *cmd)
 
 		fdata.buffer_type = HFI_BUFFER_INPUT;
 		fdata.flags |= HFI_BUFFERFLAG_EOS;
-		fdata.device_addr = 0xdeadb000;
+		if (IS_V3(inst->core))
+			fdata.device_addr = 0;
+		else
+			fdata.device_addr = 0xdeadb000;
+
+		ret = venc_pm_get(inst);
+		if (ret)
+			goto unlock;
 
 		ret = hfi_session_process_buf(inst, &fdata);
+		venc_pm_put(inst, true);
 
 		inst->enc_state = VENUS_ENC_STATE_DRAIN;
 	} else if (cmd->cmd == V4L2_ENC_CMD_START) {
@@ -559,6 +570,7 @@ venc_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *cmd)
 		}
 		if (inst->enc_state == VENUS_ENC_STATE_STOPPED) {
 			vb2_clear_last_buffer_dequeued(&inst->fh.m2m_ctx->cap_q_ctx.q);
+			inst->next_buf_last = false;
 			inst->enc_state = VENUS_ENC_STATE_ENCODING;
 		}
 	}
@@ -1263,6 +1275,7 @@ static int venc_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	venus_helper_init_instance(inst);
 
+	inst->next_buf_last = false;
 	inst->sequence_cap = 0;
 	inst->sequence_out = 0;
 
@@ -1322,11 +1335,27 @@ static void venc_vb2_buf_queue(struct vb2_buffer *vb)
 
 	mutex_lock(&inst->lock);
 
-	if (inst->enc_state == VENUS_ENC_STATE_STOPPED) {
+	if (V4L2_TYPE_IS_CAPTURE(vb->vb2_queue->type) &&
+	    inst->enc_state == VENUS_ENC_STATE_STOPPED) {
+		unsigned long flags;
+		bool do_last;
+
+		spin_lock_irqsave(&inst->eos_lock, flags);
+		do_last = inst->next_buf_last;
+		inst->next_buf_last = false;
 		vbuf->sequence = inst->sequence_cap++;
+		spin_unlock_irqrestore(&inst->eos_lock, flags);
+
 		vbuf->field = V4L2_FIELD_NONE;
 		vb2_set_plane_payload(vb, 0, 0);
-		v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_DONE);
+		if (do_last) {
+			static const struct v4l2_event eos = { .type = V4L2_EVENT_EOS };
+
+			v4l2_m2m_last_buffer_done(inst->m2m_ctx, vbuf);
+			v4l2_event_queue_fh(&inst->fh, &eos);
+		} else {
+			v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_DONE);
+		}
 		mutex_unlock(&inst->lock);
 		return;
 	}
@@ -1335,13 +1364,22 @@ static void venc_vb2_buf_queue(struct vb2_buffer *vb)
 	mutex_unlock(&inst->lock);
 }
 
+static void venc_stop_streaming(struct vb2_queue *q)
+{
+	struct venus_inst *inst = vb2_get_drv_priv(q);
+
+	venc_pm_get(inst);
+	venus_helper_vb2_stop_streaming(q);
+	venc_pm_put(inst, true);
+}
+
 static const struct vb2_ops venc_vb2_ops = {
 	.queue_setup = venc_queue_setup,
 	.buf_init = venc_buf_init,
 	.buf_cleanup = venc_buf_cleanup,
 	.buf_prepare = venus_helper_vb2_buf_prepare,
 	.start_streaming = venc_start_streaming,
-	.stop_streaming = venus_helper_vb2_stop_streaming,
+	.stop_streaming = venc_stop_streaming,
 	.buf_queue = venc_vb2_buf_queue,
 };
 
@@ -1361,8 +1399,15 @@ static void venc_buf_done(struct venus_inst *inst, unsigned int buf_type,
 		type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 
 	vbuf = venus_helper_find_buf(inst, type, tag);
-	if (!vbuf)
+	if (!vbuf) {
+		if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
+		    (flags & V4L2_BUF_FLAG_LAST)) {
+			if (inst->enc_state == VENUS_ENC_STATE_DRAIN)
+				inst->enc_state = VENUS_ENC_STATE_STOPPED;
+			venus_helper_complete_eos(inst);
+		}
 		return;
+	}
 
 	vbuf->flags = flags;
 
@@ -1372,9 +1417,13 @@ static void venc_buf_done(struct venus_inst *inst, unsigned int buf_type,
 		vb->planes[0].data_offset = data_offset;
 		vb->timestamp = timestamp_us * NSEC_PER_USEC;
 		vbuf->sequence = inst->sequence_cap++;
-		if ((vbuf->flags & V4L2_BUF_FLAG_LAST) &&
-		    inst->enc_state == VENUS_ENC_STATE_DRAIN) {
-			inst->enc_state = VENUS_ENC_STATE_STOPPED;
+		if (vbuf->flags & V4L2_BUF_FLAG_LAST) {
+			static const struct v4l2_event eos = { .type = V4L2_EVENT_EOS };
+
+			if (inst->enc_state == VENUS_ENC_STATE_DRAIN)
+				inst->enc_state = VENUS_ENC_STATE_STOPPED;
+			v4l2_event_queue_fh(&inst->fh, &eos);
+			v4l2_m2m_mark_stopped(inst->m2m_ctx);
 		}
 	} else {
 		vbuf->sequence = inst->sequence_out++;
@@ -1471,6 +1520,7 @@ static int venc_open(struct file *file)
 	INIT_LIST_HEAD(&inst->dpbbufs);
 	INIT_LIST_HEAD(&inst->registeredbufs);
 	INIT_LIST_HEAD(&inst->internalbufs);
+	spin_lock_init(&inst->eos_lock);
 	INIT_LIST_HEAD(&inst->list);
 	mutex_init(&inst->lock);
 	mutex_init(&inst->ctx_q_lock);

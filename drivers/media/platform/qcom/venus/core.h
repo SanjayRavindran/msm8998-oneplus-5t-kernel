@@ -461,6 +461,7 @@ enum venus_inst_modes {
 struct venus_inst {
 	struct list_head list;
 	struct mutex lock;
+	spinlock_t eos_lock;
 	struct venus_core *core;
 	struct clock_data clk_data;
 	struct list_head dpbbufs;

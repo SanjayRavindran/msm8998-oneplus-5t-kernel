@@ -551,6 +551,7 @@ static void hfi_session_ftb_done(struct venus_core *core,
 	unsigned int error;
 	u32 flags = 0, hfi_flags = 0, offset = 0, filled_len = 0;
 	u32 pic_type = 0, buffer_type = 0, output_tag = -1;
+	u32 packet_buffer = 0;
 
 	if (session_type == VIDC_SESSION_TYPE_ENC) {
 		struct hfi_msg_session_fbd_compressed_pkt *pkt = packet;
@@ -562,6 +563,7 @@ static void hfi_session_ftb_done(struct venus_core *core,
 		filled_len = pkt->filled_len;
 		pic_type = pkt->picture_type;
 		output_tag = pkt->output_tag;
+		packet_buffer = pkt->packet_buffer;
 		buffer_type = HFI_BUFFER_OUTPUT;
 
 		error = pkt->error_type;
@@ -576,6 +578,7 @@ static void hfi_session_ftb_done(struct venus_core *core,
 		filled_len = pkt->filled_len;
 		pic_type = pkt->picture_type;
 		output_tag = pkt->output_tag;
+		packet_buffer = pkt->packet_buffer;
 
 		if (pkt->stream_id == 0)
 			buffer_type = HFI_BUFFER_OUTPUT;
@@ -591,8 +594,11 @@ static void hfi_session_ftb_done(struct venus_core *core,
 	    buffer_type != HFI_BUFFER_OUTPUT2)
 		goto done;
 
-	if (hfi_flags & HFI_BUFFERFLAG_EOS)
+	if (hfi_flags & HFI_BUFFERFLAG_EOS) {
 		flags |= V4L2_BUF_FLAG_LAST;
+		if (!packet_buffer)
+			output_tag = -1;
+	}
 
 	switch (pic_type) {
 	case HFI_PICTURE_IDR:

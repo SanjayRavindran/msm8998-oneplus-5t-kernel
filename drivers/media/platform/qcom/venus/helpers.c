@@ -9,6 +9,7 @@
 #include <linux/slab.h>
 #include <linux/kernel.h>
 #include <media/videobuf2-dma-contig.h>
+#include <media/v4l2-event.h>
 #include <media/v4l2-mem2mem.h>
 #include <asm/div64.h>
 
@@ -1525,6 +1526,31 @@ void venus_helper_vb2_buf_queue(struct vb2_buffer *vb)
 	}
 }
 EXPORT_SYMBOL_GPL(venus_helper_vb2_buf_queue);
+
+void venus_helper_complete_eos(struct venus_inst *inst)
+{
+	static const struct v4l2_event eos = { .type = V4L2_EVENT_EOS };
+	struct vb2_v4l2_buffer *vbuf;
+	unsigned long flags;
+
+	spin_lock_irqsave(&inst->eos_lock, flags);
+	vbuf = v4l2_m2m_dst_buf_remove(inst->m2m_ctx);
+	if (vbuf) {
+		vbuf->sequence = inst->sequence_cap++;
+		inst->next_buf_last = false;
+	} else {
+		inst->next_buf_last = true;
+	}
+	spin_unlock_irqrestore(&inst->eos_lock, flags);
+
+	v4l2_event_queue_fh(&inst->fh, &eos);
+	if (vbuf) {
+		vb2_set_plane_payload(&vbuf->vb2_buf, 0, 0);
+		vbuf->field = V4L2_FIELD_NONE;
+		v4l2_m2m_last_buffer_done(inst->m2m_ctx, vbuf);
+	}
+}
+EXPORT_SYMBOL_GPL(venus_helper_complete_eos);
 
 void venus_helper_buffers_done(struct venus_inst *inst, unsigned int type,
 			       enum vb2_buffer_state state)
