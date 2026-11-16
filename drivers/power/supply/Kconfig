@@ -1099,4 +1099,13 @@ config FUEL_GAUGE_MM8013
 	  the state of charge, temperature, cycle count, actual and design
 	  capacity, etc.
 
+
+config CHARGER_ONEPLUS_DASH
+	tristate "OnePlus 5T Dash/VOOC fast-charge STM8 MCU driver"
+	depends on I2C && GPIOLIB
+	select FW_LOADER
+	help
+	  Say Y or M here to enable clean-room support for the OnePlus 5T
+	  STM8S Dash fast-charge microcontroller and /dev/dash interface.
+
 endif # POWER_SUPPLY
