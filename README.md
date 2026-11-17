@@ -66,3 +66,15 @@ fastboot boot boot.img
 ```
 
 For full OnePlus 5T stock firmware & clean-room Android 17 integration notes, consult your firmware extraction setup (`/vendor/firmware_mnt/image` and `/vendor/firmware`).
+---
+
+## Android 17 / Kernel #62 Updates & Repository Knowledge Docs
+
+- **Commits `8700ef046`..`8f55c2473` (#62):**
+  - DPU < 5.0 command-mode TE synchronization (`_dpu_encoder_phys_cmd_wait_for_te` / `wait_for_idle`) + Samsung S6E3FC1 HS brightness writes and `srgb`/`dci_p3`/`hbm` sysfs nodes.
+  - Adreno 540 shared global TTBR0 `gpu->vm` workaround (`create_private_vm = NULL`, `qcom_adreno_can_do_ttbr1 = false`, deferred global VMA teardown on close), restored `342–710 MHz` OPPs, and `pm8005_s1` min `1.088 V`.
+  - Android 17 eBPF tracing/BTF support (`CONFIG_FTRACE`, `CONFIG_TRACING`, `CONFIG_EVENT_TRACING`, `CONFIG_KPROBES`, `CONFIG_BPF_EVENTS`, `CONFIG_DEBUG_INFO_DWARF5`, `CONFIG_DEBUG_INFO_BTF`) enabling `.BTF`/`.BTF_ids` for `BpfLoader-rs`.
+- **Engineering Documentation:**
+  - [Stock 4.4.205 vs Mainline 6.18 Architecture & Findings](docs/01_stock_4_4_vs_mainline_6_18_findings.md)
+  - [Kernel Build, Packaging & Verification Guide](docs/02_kernel_build_and_boot_guide.md)
+  - [Mainline MSM8998 Kernel Skill](skills/msm8998-mainline-android-kernel/SKILL.md)
