@@ -487,8 +487,8 @@ static void dpu_kms_complete_commit(struct msm_kms *kms, unsigned crtc_mask)
 	DPU_ATRACE_END("kms_complete_commit");
 }
 
-static void dpu_kms_wait_for_commit_done(struct msm_kms *kms,
-		struct drm_crtc *crtc)
+static void _dpu_kms_wait_crtc(struct msm_kms *kms,
+		struct drm_crtc *crtc, bool wait_tx_idle)
 {
 	struct drm_encoder *encoder;
 	struct drm_device *dev;
@@ -514,15 +514,16 @@ static void dpu_kms_wait_for_commit_done(struct msm_kms *kms,
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 		if (encoder->crtc != crtc)
 			continue;
-		/*
-		 * Wait for post-flush if necessary to delay before
-		 * plane_cleanup. For example, wait for vsync in case of video
-		 * mode panels. This may be a no-op for command mode panels.
-		 */
 		trace_dpu_kms_wait_for_commit_done(DRMID(crtc));
-		ret = dpu_encoder_wait_for_commit_done(encoder);
+		if (wait_tx_idle &&
+		    dpu_encoder_get_intf_mode(encoder) == INTF_MODE_CMD)
+			ret = dpu_encoder_wait_for_tx_complete(encoder);
+		else
+			ret = dpu_encoder_wait_for_commit_done(encoder);
 		if (ret && ret != -EWOULDBLOCK) {
-			DPU_ERROR_RATELIMITED("wait for commit done returned %d\n", ret);
+			DPU_ERROR_RATELIMITED("wait for %s returned %d\n",
+					      wait_tx_idle ? "tx idle" : "commit done",
+					      ret);
 			break;
 		}
 	}
@@ -534,7 +535,16 @@ static void dpu_kms_wait_flush(struct msm_kms *kms, unsigned crtc_mask)
 	struct drm_crtc *crtc;
 
 	for_each_crtc_mask(dpu_kms->dev, crtc, crtc_mask)
-		dpu_kms_wait_for_commit_done(kms, crtc);
+		_dpu_kms_wait_crtc(kms, crtc, false);
+}
+
+static void dpu_kms_wait_for_idle(struct msm_kms *kms, unsigned crtc_mask)
+{
+	struct dpu_kms *dpu_kms = to_dpu_kms(kms);
+	struct drm_crtc *crtc;
+
+	for_each_crtc_mask(dpu_kms->dev, crtc, crtc_mask)
+		_dpu_kms_wait_crtc(kms, crtc, true);
 }
 
 static const char *dpu_vsync_sources[] = {
@@ -1081,6 +1091,7 @@ static const struct msm_kms_funcs kms_funcs = {
 	.check_mode_changed = dpu_kms_check_mode_changed,
 	.flush_commit    = dpu_kms_flush_commit,
 	.wait_flush      = dpu_kms_wait_flush,
+	.wait_for_idle   = dpu_kms_wait_for_idle,
 	.complete_commit = dpu_kms_complete_commit,
 	.enable_vblank   = dpu_kms_enable_vblank,
 	.disable_vblank  = dpu_kms_disable_vblank,

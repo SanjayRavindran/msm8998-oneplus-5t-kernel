@@ -229,7 +229,10 @@ void msm_atomic_commit_tail(struct drm_atomic_state *state)
 	 */
 	lock_crtcs(kms, crtc_mask);
 	trace_msm_atomic_wait_flush_start(crtc_mask);
-	kms->funcs->wait_flush(kms, crtc_mask);
+	if (kms->funcs->wait_for_idle)
+		kms->funcs->wait_for_idle(kms, crtc_mask);
+	else
+		kms->funcs->wait_flush(kms, crtc_mask);
 	trace_msm_atomic_wait_flush_finish(crtc_mask);
 
 	atomic_set(&kms->fault_snapshot_capture, 0);

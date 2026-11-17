@@ -108,6 +108,7 @@ static void dpu_encoder_phys_cmd_pp_tx_done_irq(void *arg)
 
 	/* Signal any waiting atomic commit thread */
 	wake_up_all(&phys_enc->pending_kickoff_wq);
+	wake_up_all(&to_dpu_encoder_phys_cmd(phys_enc)->pending_vblank_wq);
 	DPU_ATRACE_END("pp_done_irq");
 }
 
@@ -200,8 +201,9 @@ static int _dpu_encoder_phys_cmd_handle_ppdone_timeout(
 			  cmd_enc->pp_timeout_report_cnt,
 			  atomic_read(&phys_enc->pending_kickoff_cnt));
 		msm_disp_snapshot_state(drm_enc->dev);
-		dpu_core_irq_unregister_callback(phys_enc->dpu_kms,
-				phys_enc->irq[INTR_IDX_RDPTR]);
+		if (frame_event & DPU_ENCODER_FRAME_EVENT_PANEL_DEAD)
+			dpu_core_irq_unregister_callback(phys_enc->dpu_kms,
+					phys_enc->irq[INTR_IDX_RDPTR]);
 	}
 
 	atomic_add_unless(&phys_enc->pending_kickoff_cnt, -1, 0);
@@ -674,6 +676,25 @@ static int dpu_encoder_phys_cmd_wait_for_tx_complete(
 	return rc;
 }
 
+static int _dpu_encoder_phys_cmd_wait_for_te(
+		struct dpu_encoder_phys *phys_enc)
+{
+	struct dpu_encoder_phys_cmd *cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
+	long rc;
+
+	if (!phys_enc->vblank_refcount)
+		return dpu_encoder_phys_cmd_wait_for_tx_complete(phys_enc);
+
+	rc = wait_event_timeout(cmd_enc->pending_vblank_wq,
+			atomic_read(&cmd_enc->pending_vblank_cnt) == 0 ||
+			atomic_read(&phys_enc->pending_kickoff_cnt) == 0,
+			msecs_to_jiffies(KICKOFF_TIMEOUT_MS));
+	if (!rc)
+		return dpu_encoder_phys_cmd_wait_for_tx_complete(phys_enc);
+
+	return 0;
+}
+
 static int dpu_encoder_phys_cmd_wait_for_commit_done(
 		struct dpu_encoder_phys *phys_enc)
 {
@@ -684,8 +705,15 @@ static int dpu_encoder_phys_cmd_wait_for_commit_done(
 	if (phys_enc->enable_state == DPU_ENC_DISABLED)
 		return 0;
 
-	if (!phys_enc->irq[INTR_IDX_CTL_START] ||
-	    phys_enc->hw_ctl->ops.is_started(phys_enc->hw_ctl))
+	/*
+	 * DPU < 5.0 (e.g. msm8998) lacks CTL_START IRQ; wait for TE so out_fence
+	 * and flip_done signal at frame scan start while pre-commit wait_for_idle
+	 * serializes register programming against PP_TX_DONE.
+	 */
+	if (!phys_enc->irq[INTR_IDX_CTL_START])
+		return _dpu_encoder_phys_cmd_wait_for_te(phys_enc);
+
+	if (phys_enc->hw_ctl->ops.is_started(phys_enc->hw_ctl))
 		return dpu_encoder_phys_cmd_wait_for_tx_complete(phys_enc);
 
 	return _dpu_encoder_phys_cmd_wait_for_ctl_start(phys_enc);
@@ -704,6 +732,10 @@ static void dpu_encoder_phys_cmd_handle_post_kickoff(
 static void dpu_encoder_phys_cmd_trigger_start(
 		struct dpu_encoder_phys *phys_enc)
 {
+	if (dpu_encoder_phys_cmd_is_master(phys_enc) &&
+	    !phys_enc->irq[INTR_IDX_CTL_START])
+		atomic_set(&to_dpu_encoder_phys_cmd(phys_enc)->pending_vblank_cnt, 1);
+
 	dpu_encoder_helper_trigger_start(phys_enc);
 }
 

@@ -91,6 +91,13 @@ struct msm_kms_funcs {
 	void (*wait_flush)(struct msm_kms *kms, unsigned crtc_mask);
 
 	/**
+	 * Wait for any active hardware scanout/transfer to go idle before
+	 * pushing new atomic updates down to hardware. Optional; defaults to
+	 * ->wait_flush() if unset.
+	 */
+	void (*wait_for_idle)(struct msm_kms *kms, unsigned crtc_mask);
+
+	/**
 	 * Clean up after commit is completed.  This is called after
 	 * ->wait_flush(), to give the backend a chance to do any
 	 * post-commit cleanup.

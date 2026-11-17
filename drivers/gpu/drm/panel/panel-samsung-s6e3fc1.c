@@ -30,6 +30,8 @@ struct s6e3fc1 {
 	struct mutex lock;
 	bool prepared;
 	bool enabled;
+	u8 color_mode; /* 0 = native, 1 = srgb, 2 = dci_p3 */
+	bool hbm;
 };
 
 static void s6e3fc1_power_off(struct s6e3fc1 *ctx)
@@ -193,6 +195,61 @@ out_unlock:
 	return 0;
 }
 
+static int s6e3fc1_apply_color_mode_locked(struct s6e3fc1 *ctx)
+{
+	struct mipi_dsi_device *dsi = ctx->dsi;
+
+	switch (ctx->color_mode) {
+	case 1: /* sRGB */
+		dsi_dcs_write_seq(dsi, 0xf0, 0x5a, 0x5a);
+		dsi_dcs_write_seq(dsi, 0xbc, 0x01);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x01);
+		dsi_dcs_write_seq(dsi, 0xbc, 0x12);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x2c);
+		dsi_dcs_write_seq(dsi, 0xbc, 0xa3, 0x05, 0x04, 0x46, 0xcd, 0x10, 0x05,
+				  0x09, 0xb0, 0x57, 0xef, 0xcf, 0xbb, 0x11, 0xbf, 0xe1,
+				  0xda, 0x17, 0xff, 0xf9, 0xd8);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x42);
+		dsi_dcs_write_seq(dsi, 0xbc, 0x03);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x4b);
+		dsi_dcs_write_seq(dsi, 0xbc, 0xa1);
+		dsi_dcs_write_seq(dsi, 0xf0, 0xa5, 0xa5);
+		break;
+	case 2: /* DCI-P3 */
+		dsi_dcs_write_seq(dsi, 0xf0, 0x5a, 0x5a);
+		dsi_dcs_write_seq(dsi, 0xbc, 0x01);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x01);
+		dsi_dcs_write_seq(dsi, 0xbc, 0x12);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x2c);
+		dsi_dcs_write_seq(dsi, 0xbc, 0xc6, 0x00, 0x00, 0x1e, 0xcf, 0x00, 0x06,
+				  0x0a, 0xc3, 0x26, 0xef, 0xcd, 0xe0, 0x04, 0xce, 0xe9,
+				  0xdf, 0x00, 0xff, 0xf9, 0xd8);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x42);
+		dsi_dcs_write_seq(dsi, 0xbc, 0x03);
+		dsi_dcs_write_seq(dsi, 0xb0, 0x4b);
+		dsi_dcs_write_seq(dsi, 0xbc, 0xa1);
+		dsi_dcs_write_seq(dsi, 0xf0, 0xa5, 0xa5);
+		break;
+	default: /* Native */
+		dsi_dcs_write_seq(dsi, 0xf0, 0x5a, 0x5a);
+		dsi_dcs_write_seq(dsi, 0xbc, 0xe0, 0x00);
+		dsi_dcs_write_seq(dsi, 0xf0, 0xa5, 0xa5);
+		break;
+	}
+	return 0;
+}
+
+static int s6e3fc1_apply_hbm_locked(struct s6e3fc1 *ctx)
+{
+	struct mipi_dsi_device *dsi = ctx->dsi;
+
+	if (ctx->hbm)
+		dsi_dcs_write_seq(dsi, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0xe8);
+	else
+		dsi_dcs_write_seq(dsi, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x20);
+	return 0;
+}
+
 static int s6e3fc1_enable(struct drm_panel *panel)
 {
 	struct s6e3fc1 *ctx = to_s6e3fc1_panel(panel);
@@ -218,6 +275,11 @@ static int s6e3fc1_enable(struct drm_panel *panel)
 	r2 = mipi_dsi_dcs_read(dsi, MIPI_DCS_GET_SIGNAL_MODE, &rddsm, 1);
 	dev_info(dev, "s6e3fc1_enable: RDDPM=0x%02x (%d) RDDSM=0x%02x (%d)\n",
 		 rddpm, r1, rddsm, r2);
+
+	if (ctx->color_mode)
+		s6e3fc1_apply_color_mode_locked(ctx);
+	if (ctx->hbm)
+		s6e3fc1_apply_hbm_locked(ctx);
 
 	ctx->enabled = true;
 
@@ -277,6 +339,93 @@ static const struct drm_panel_funcs s6e3fc1_panel_funcs = {
 	.get_modes = s6e3fc1_get_modes,
 };
 
+
+static ssize_t srgb_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct s6e3fc1 *ctx = dev_get_drvdata(dev);
+	return sysfs_emit(buf, "%u\n", ctx->color_mode == 1 ? 1 : 0);
+}
+
+static ssize_t srgb_store(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	struct s6e3fc1 *ctx = dev_get_drvdata(dev);
+	bool val;
+	int ret;
+
+	ret = kstrtobool(buf, &val);
+	if (ret)
+		return ret;
+
+	mutex_lock(&ctx->lock);
+	ctx->color_mode = val ? 1 : 0;
+	if (ctx->prepared && ctx->enabled)
+		ret = s6e3fc1_apply_color_mode_locked(ctx);
+	mutex_unlock(&ctx->lock);
+	return ret < 0 ? ret : count;
+}
+static DEVICE_ATTR_RW(srgb);
+
+static ssize_t dci_p3_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct s6e3fc1 *ctx = dev_get_drvdata(dev);
+	return sysfs_emit(buf, "%u\n", ctx->color_mode == 2 ? 1 : 0);
+}
+
+static ssize_t dci_p3_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	struct s6e3fc1 *ctx = dev_get_drvdata(dev);
+	bool val;
+	int ret;
+
+	ret = kstrtobool(buf, &val);
+	if (ret)
+		return ret;
+
+	mutex_lock(&ctx->lock);
+	ctx->color_mode = val ? 2 : 0;
+	if (ctx->prepared && ctx->enabled)
+		ret = s6e3fc1_apply_color_mode_locked(ctx);
+	mutex_unlock(&ctx->lock);
+	return ret < 0 ? ret : count;
+}
+static DEVICE_ATTR_RW(dci_p3);
+
+static ssize_t hbm_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct s6e3fc1 *ctx = dev_get_drvdata(dev);
+	return sysfs_emit(buf, "%u\n", ctx->hbm ? 1 : 0);
+}
+
+static ssize_t hbm_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	struct s6e3fc1 *ctx = dev_get_drvdata(dev);
+	bool val;
+	int ret;
+
+	ret = kstrtobool(buf, &val);
+	if (ret)
+		return ret;
+
+	mutex_lock(&ctx->lock);
+	ctx->hbm = val;
+	if (ctx->prepared && ctx->enabled)
+		ret = s6e3fc1_apply_hbm_locked(ctx);
+	mutex_unlock(&ctx->lock);
+	return ret < 0 ? ret : count;
+}
+static DEVICE_ATTR_RW(hbm);
+
+static struct attribute *s6e3fc1_attrs[] = {
+	&dev_attr_srgb.attr,
+	&dev_attr_dci_p3.attr,
+	&dev_attr_hbm.attr,
+	NULL
+};
+ATTRIBUTE_GROUPS(s6e3fc1);
+
 static int s6e3fc1_bl_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
@@ -290,13 +439,14 @@ static int s6e3fc1_bl_update_status(struct backlight_device *bl)
 		return 0;
 	}
 
-	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
 
 	brightness = (u16)backlight_get_brightness(bl);
 	/* Panel expects big-endian 10-bit DBV in MIPI DCS 0x51 */
 	brightness = __swab16(brightness);
 
 	ret = mipi_dsi_dcs_set_display_brightness(dsi, brightness);
+	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	mutex_unlock(&ctx->lock);
 	if (ret < 0)
 		return ret;
@@ -399,12 +549,16 @@ static int s6e3fc1_probe(struct mipi_dsi_device *dsi)
 		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
 				     "Failed to create backlight\n");
 
+	if (sysfs_create_groups(&dev->kobj, s6e3fc1_groups))
+		dev_warn(dev, "Failed to create s6e3fc1 sysfs groups\n");
+
 	drm_panel_add(&ctx->panel);
 
 	ret = mipi_dsi_attach(dsi);
 	if (ret < 0) {
 		dev_err(dev, "Failed to attach to DSI host: %d\n", ret);
-		drm_panel_remove(&ctx->panel);
+		sysfs_remove_groups(&dsi->dev.kobj, s6e3fc1_groups);
+	drm_panel_remove(&ctx->panel);
 		return ret;
 	}
 
