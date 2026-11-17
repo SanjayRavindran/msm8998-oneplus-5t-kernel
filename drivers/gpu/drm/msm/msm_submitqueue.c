@@ -128,6 +128,13 @@ void msm_submitqueue_close(struct msm_context *ctx)
 	if (!ctx->vm)
 		return;
 
+	/* Global gpu->vm (pid == NULL) is shared across all processes when
+	 * per-process pgtables are unavailable; never tear it down on a
+	 * single client close.
+	 */
+	if (!to_msm_vm(ctx->vm)->pid)
+		return;
+
 	msm_gem_vm_close(ctx->vm);
 }
 

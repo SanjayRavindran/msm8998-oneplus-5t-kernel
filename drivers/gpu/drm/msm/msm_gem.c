@@ -49,6 +49,7 @@ static void put_iova_spaces(struct drm_gem_object *obj, struct drm_gpuvm *vm,
 
 static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
 {
+	struct msm_drm_private *priv = obj->dev->dev_private;
 	struct msm_context *ctx = file->driver_priv;
 	struct drm_exec exec;
 
@@ -59,8 +60,10 @@ static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
 	 * If VM isn't created yet, nothing to cleanup.  And in fact calling
 	 * put_iova_spaces() with vm=NULL would be bad, in that it will tear-
 	 * down the mappings of shared buffers in other contexts.
+	 * Likewise, when sharing the global gpu->vm, another process/fb may still
+	 * hold a reference to this BO; defer global VMA teardown to msm_gem_free_object().
 	 */
-	if (!ctx->vm)
+	if (!ctx->vm || (priv->gpu && ctx->vm == priv->gpu->vm))
 		return;
 
 	/*

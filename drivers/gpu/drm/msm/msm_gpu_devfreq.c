@@ -121,7 +121,7 @@ static int msm_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
 
 static struct devfreq_dev_profile msm_devfreq_profile = {
 	.timer = DEVFREQ_TIMER_DELAYED,
-	.polling_ms = 50,
+	.polling_ms = 20,
 	.target = msm_devfreq_target,
 	.get_dev_status = msm_devfreq_get_dev_status,
 	.get_cur_freq = msm_devfreq_get_cur_freq,
@@ -152,8 +152,8 @@ void msm_devfreq_init(struct msm_gpu *gpu)
 	 * where due to stalling waiting for vblank we could get stuck
 	 * at (for ex) 30fps at 50% utilization.
 	 */
-	priv->gpu_devfreq_config.upthreshold = 50;
-	priv->gpu_devfreq_config.downdifferential = 10;
+	priv->gpu_devfreq_config.upthreshold = 25;
+	priv->gpu_devfreq_config.downdifferential = 8;
 
 	mutex_init(&df->lock);
 	df->suspended = true;

@@ -1743,7 +1743,7 @@ static uint32_t a5xx_get_rptr(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
 	return ring->memptrs->rptr = gpu_read(gpu, REG_A5XX_CP_RB_RPTR);
 }
 
-static struct drm_gpuvm *
+static __maybe_unused struct drm_gpuvm *
 a5xx_create_private_vm(struct msm_gpu *gpu, bool kernel_managed)
 {
 	struct msm_mmu *mmu;
@@ -1780,7 +1780,8 @@ static const struct adreno_gpu_funcs funcs = {
 		.gpu_state_get = a5xx_gpu_state_get,
 		.gpu_state_put = a5xx_gpu_state_put,
 		.create_vm = adreno_create_vm,
-		.create_private_vm = a5xx_create_private_vm,
+		/* MSM8998 TZ blocks CP_SMMU_TABLE_UPDATE on CB0; share global TTBR0 VM */
+		.create_private_vm = NULL,
 		.get_rptr = a5xx_get_rptr,
 	},
 	.get_timestamp = a5xx_get_timestamp,

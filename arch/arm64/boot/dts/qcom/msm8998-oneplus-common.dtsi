@@ -1176,14 +1176,6 @@
 		firmware-name = "qcom/msm8998/oneplus/a540_zap.mbn";
 	};
 
-	opp-table {
-		/delete-node/ opp-710000097;
-		/delete-node/ opp-670000048;
-		/delete-node/ opp-596000097;
-		/delete-node/ opp-515000097;
-		/delete-node/ opp-414000000;
-		/delete-node/ opp-342000000;
-	};
 };
 
 &adreno_smmu {
@@ -1191,7 +1183,7 @@
 };
 
 &pm8005_s1 {
-	regulator-min-microvolt = <988000>;
+	regulator-min-microvolt = <1088000>;
 };
 
 &tlmm {
